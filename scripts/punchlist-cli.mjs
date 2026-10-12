@@ -2812,7 +2812,7 @@ var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
-var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v" };
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", "no-tailscale": "b", token: "v" };
 var FLAGS = {
   start: SERVE_FLAGS,
   serve: SERVE_FLAGS,
@@ -2923,10 +2923,12 @@ function stripCookie(header, name) {
   const kept = header.split(";").map((s) => s.trim()).filter((s) => s && !s.startsWith(name + "="));
   return kept.length ? kept.join("; ") : void 0;
 }
-function tailscaleName() {
+function tailscaleSelf() {
   try {
     const out = execFileSync("tailscale", ["status", "--json"], { stdio: ["ignore", "pipe", "ignore"], timeout: 3e3, encoding: "utf8" });
-    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, "") ?? null;
+    const j = JSON.parse(out);
+    const name = j.Self?.DNSName?.replace(/\.$/, "");
+    return j.BackendState === "Running" && name ? { name, ips: j.Self?.TailscaleIPs ?? [] } : null;
   } catch {
     return null;
   }
@@ -2941,19 +2943,14 @@ function alive(pid) {
 }
 function printInfo(st) {
   const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`);
-  if (ts) {
-    console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
-    console.log(`             https://${ts}${authPath}`);
-  }
+  if (st.tailnet) console.log(`  Tailscale: http://${st.tailnet}:${st.port}${authPath}`);
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 function links(st) {
   const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
-  return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...ts ? { tailscale: `https://${ts}${authPath}` } : {} };
+  return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...st.tailnet ? { tailscale: `http://${st.tailnet}:${st.port}${authPath}` } : {} };
 }
 function startOutput(st, state) {
   const l = links(st);
@@ -2963,7 +2960,7 @@ function startOutput(st, state) {
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
       "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor; when no file is known, \u{1F50E} Locate asks you to find it",
-      ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
+      ...l.tailscale ? ["Also paste the tailscale link: it opens on the user's phone or any other device in their tailnet"] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]
   };
@@ -3024,6 +3021,9 @@ function cmdServe(args) {
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? "127.0.0.1";
   const noAuth = args["no-auth"] === true;
+  const wildcard = ["0.0.0.0", "::"].includes(host);
+  const ts = noAuth || args["no-tailscale"] || args.host != null && !wildcard ? null : tailscaleSelf();
+  const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString("base64url");
   const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   const lib = target.protocol === "https:" ? https : http;
@@ -3247,7 +3247,7 @@ function cmdServe(args) {
     }
     json(res, 404, { error: "not found" });
   }
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get("next");
@@ -3270,8 +3270,8 @@ function cmdServe(args) {
       return;
     }
     proxy(req, res);
-  });
-  server.on("upgrade", (req, socket, head) => {
+  };
+  const onUpgrade = (req, socket, head) => {
     if (!authed(req)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return;
@@ -3291,7 +3291,7 @@ function cmdServe(args) {
     }
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
-  });
+  };
   function openInEditor(file, line, column) {
     const root = process.cwd();
     const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
@@ -3314,20 +3314,53 @@ function cmdServe(args) {
   function log(msg) {
     console.log(`[punchlist ${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${msg}`);
   }
-  server.listen(port, host, () => {
+  const listenOn = (h) => new Promise((resolve2) => {
+    const s = http.createServer(handler).on("upgrade", onUpgrade).once("error", resolve2);
+    s.listen(port, h, () => {
+      s.off("error", resolve2);
+      resolve2(s);
+    });
+  });
+  const fail = (msg) => {
+    console.error(msg);
+    process.exit(1);
+  };
+  async function bind() {
+    for (; ; ) {
+      const main = await listenOn(host);
+      if (!(main instanceof http.Server)) {
+        if (main.code === "EADDRINUSE" && auto && port < lastPort) {
+          log(`port ${port} is in use, trying ${port + 1}`);
+          port++;
+          continue;
+        }
+        return fail(main.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : main.message);
+      }
+      const servers = [main];
+      let clash = false;
+      for (const ip of tailnetIps) {
+        const s = await listenOn(ip);
+        if (s instanceof http.Server) servers.push(s);
+        else if (s.code === "EADDRINUSE") {
+          clash = true;
+          break;
+        } else log(`not listening on tailscale address ${ip}: ${s.code ?? s.message}`);
+      }
+      if (!clash) return servers.length > 1 || wildcard;
+      for (const s of servers) s.close();
+      if (auto && port < lastPort) {
+        log(`port ${port} is in use on the tailnet, trying ${port + 1}`);
+        port++;
+        continue;
+      }
+      return fail(`port ${port} is in use on the tailscale address (pick another with --port, or pass --no-tailscale)`);
+    }
+  }
+  void bind().then((onTailnet) => {
     fs.mkdirSync(STATE_DIR, { recursive: true });
-    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
+    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd(), ...ts && onTailnet ? { tailnet: ts.name } : {} };
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
-  });
-  server.on("error", (e) => {
-    if (e.code === "EADDRINUSE" && auto && port < lastPort) {
-      log(`port ${port} is in use, trying ${port + 1}`);
-      server.listen(++port, host);
-      return;
-    }
-    console.error(e.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : e.message);
-    process.exit(1);
   });
   const cleanup = () => {
     try {
@@ -3558,7 +3591,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -3567,7 +3600,12 @@ var HELP = {
   --port     proxy port, strict (default: 4000, or the next free port when it is busy;
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
-  --no-auth  no access token (purely local use only)
+  --no-auth  no access token (purely local use only; never on the tailnet)
+  --no-tailscale  do not listen on the tailnet
+  When tailscale is installed and connected, the proxy also listens on this machine's tailnet
+  addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
+  the user's phone. Only tailnet devices reach it, and the link token is still required.
+  Never use \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
