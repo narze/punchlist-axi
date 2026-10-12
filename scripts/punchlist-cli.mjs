@@ -2812,7 +2812,7 @@ var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
-var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", "no-tailscale": "b", token: "v", root: "v", "editor-url": "v" };
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", "no-tailscale": "b", token: "v", root: "v", "editor-url": "v", "idle-timeout": "v" };
 var FLAGS = {
   start: SERVE_FLAGS,
   serve: SERVE_FLAGS,
@@ -2858,6 +2858,11 @@ function normalizeTarget(t) {
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, "");
+}
+function idleTimeout(args, cmd) {
+  const raw = args["idle-timeout"] ?? "3600", secs = Number(raw);
+  if (!raw.trim() || !(secs >= 0)) throw usageError("--idle-timeout must be a number of seconds (0 = never exit)", cmd);
+  return secs;
 }
 var EDITOR_URLS = {
   vscode: "vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
@@ -2997,6 +3002,7 @@ async function cmdStart(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
   editorUrlTemplate(args["editor-url"]);
   if (args.root && !fs.existsSync(args.root)) throw usageError(`--root ${path.resolve(args.root)} does not exist`, "start");
+  idleTimeout(args, "start");
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
   if (auto) {
@@ -3047,6 +3053,7 @@ function cmdServe(args) {
   const ts = noAuth || args["no-tailscale"] || args.host != null && !wildcard ? null : tailscaleSelf();
   const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString("base64url");
+  const idleSecs = idleTimeout(args, "serve");
   const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   const lib = target.protocol === "https:" ? https : http;
   const selfOrigins = [target.origin];
@@ -3323,6 +3330,8 @@ function cmdServe(args) {
     json(res, 404, { error: "not found" });
   }
   const handler = (req, res) => {
+    touch();
+    res.on("close", touch);
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get("next");
@@ -3347,6 +3356,7 @@ function cmdServe(args) {
     proxy(req, res);
   };
   const onUpgrade = (req, socket, head) => {
+    touch();
     if (!authed(req)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return;
@@ -3473,6 +3483,17 @@ function cmdServe(args) {
   };
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
+  const idle = idleSecs > 0 ? setTimeout(() => {
+    if (waiters.size) {
+      touch();
+      return;
+    }
+    log(`no requests for ${idleSecs}s, exiting`);
+    cleanup();
+  }, Math.min(idleSecs * 1e3, 2 ** 31 - 1)) : null;
+  function touch() {
+    idle?.refresh();
+  }
   return new Promise(() => void 0);
 }
 function isPayload(x) {
@@ -3698,7 +3719,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -3714,6 +3735,8 @@ var HELP = {
              vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
              ({host} = user@<tailscale name>; the editor connects back over SSH).
              A browser on localhost opens the file in the editor on this machine instead
+  --idle-timeout  seconds without any request (page loads, a running wait) before the proxy
+             exits on its own (default 3600; 0 = never). After that, run start again
   When tailscale is installed and connected, the proxy also listens on this machine's tailnet
   addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
   the user's phone. Only tailnet devices reach it, and the link token is still required.

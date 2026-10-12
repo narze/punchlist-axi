@@ -2,7 +2,7 @@
 // "change this element" requests for whatever coding agent is running the loop.
 // TypeScript source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
-//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode]   (background)
+//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
 //   punchlist wait  [--port 4000] [--timeout 540] [--json]
 //   punchlist done  <id> ["summary"] [--failed] [--port 4000]
@@ -38,7 +38,7 @@ const COOKIE = '__pe_auth';
 type Command = 'start' | 'serve' | 'wait' | 'show' | 'done' | 'status' | 'stop' | 'setup';
 type FlagSpec = Record<string, 'v' | 'b'>; // v = takes a value, b = boolean
 
-const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', 'no-tailscale': 'b', token: 'v', root: 'v', 'editor-url': 'v' };
+const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', 'no-tailscale': 'b', token: 'v', root: 'v', 'editor-url': 'v', 'idle-timeout': 'v' };
 const FLAGS: Record<Command, FlagSpec> = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
@@ -52,7 +52,7 @@ const FLAGS: Record<Command, FlagSpec> = {
 // Every flag of every command; parseArgs only lets through the ones in FLAGS[cmd].
 interface Args {
   _: string[];
-  target?: string; port?: string; host?: string; 'no-auth'?: true; 'no-tailscale'?: true; token?: string; root?: string; 'editor-url'?: string;
+  target?: string; port?: string; host?: string; 'no-auth'?: true; 'no-tailscale'?: true; token?: string; root?: string; 'editor-url'?: string; 'idle-timeout'?: string;
   timeout?: string; json?: true; full?: true; failed?: true; open?: string; project?: true; remove?: true;
 }
 
@@ -97,6 +97,13 @@ function normalizeTarget(t: string | undefined) {
   return t.replace(/\/+$/, '');
 }
 
+
+// Seconds without a request before `serve` exits; 0 = never.
+function idleTimeout(args: Args, cmd: Command) {
+  const raw = args['idle-timeout'] ?? '3600', secs = Number(raw);
+  if (!raw.trim() || !(secs >= 0)) throw usageError('--idle-timeout must be a number of seconds (0 = never exit)', cmd);
+  return secs;
+}
 
 // How a browser on another machine opens a file on this one: an editor URL that goes over SSH
 // (VS Code / Cursor Remote-SSH, Zed remote). {host} is user@<tailscale name or hostname>.
@@ -232,6 +239,7 @@ async function cmdStart(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
   editorUrlTemplate(args['editor-url']); // fail here, not in the detached serve
   if (args.root && !fs.existsSync(args.root)) throw usageError(`--root ${path.resolve(args.root)} does not exist`, 'start');
+  idleTimeout(args, 'start'); // fail here, not in the detached serve's log
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
   if (auto) {
@@ -285,6 +293,7 @@ function cmdServe(args: Args) {
   const ts = noAuth || args['no-tailscale'] || (args.host != null && !wildcard) ? null : tailscaleSelf();
   const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString('base64url');
+  const idleSecs = idleTimeout(args, 'serve');
   const targetPort = Number(target.port) || (target.protocol === 'https:' ? 443 : 80);
   const lib = target.protocol === 'https:' ? https : http;
 
@@ -486,6 +495,7 @@ function cmdServe(args: Args) {
   }
 
   const handler = (req: http.IncomingMessage, res: http.ServerResponse) => {
+    touch(); res.on('close', touch);
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get('next');
@@ -505,6 +515,7 @@ function cmdServe(args: Args) {
 
   // WebSockets (Vite HMR, ActionCable, LiveReload…): raw pipe after rewriting headers.
   const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+    touch();
     if (!authed(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n'); return; }
     const opts = { host: target.hostname.replace(/^\[|\]$/g, ''), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
     const up = target.protocol === 'https:' ? tls.connect(opts, onConnect) : net.connect(opts, onConnect);
@@ -611,6 +622,15 @@ function cmdServe(args: Args) {
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+
+  // Exit when nothing has asked us anything for idleSecs, so forgotten proxies do not pile up.
+  // The agent's `wait` polls at least every minute and keeps us alive; an open tab alone (SSE, HMR socket) does not.
+  // A long-poll still open counts too: it can outlast a short idle timeout.
+  const idle = idleSecs > 0 ? setTimeout(() => {
+    if (waiters.size) { touch(); return; }
+    log(`no requests for ${idleSecs}s, exiting`); cleanup();
+  }, Math.min(idleSecs * 1000, 2 ** 31 - 1)) : null;
+  function touch() { idle?.refresh(); }
   return new Promise<never>(() => undefined); // keep serving; output goes to the log
 }
 
@@ -834,7 +854,7 @@ Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 
 const HELP: Partial<Record<string, string>> = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -850,6 +870,8 @@ const HELP: Partial<Record<string, string>> = {
              vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
              ({host} = user@<tailscale name>; the editor connects back over SSH).
              A browser on localhost opens the file in the editor on this machine instead
+  --idle-timeout  seconds without any request (page loads, a running wait) before the proxy
+             exits on its own (default 3600; 0 = never). After that, run start again
   When tailscale is installed and connected, the proxy also listens on this machine's tailnet
   addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
   the user's phone. Only tailnet devices reach it, and the link token is still required.
