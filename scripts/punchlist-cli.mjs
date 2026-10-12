@@ -3140,8 +3140,15 @@ function cmdServe(args) {
   async function handleApi(req, res, url) {
     const p = url.pathname.slice(PREFIX.length);
     if (p === "/client.js") {
-      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
-      res.end(fs.readFileSync(path.join(DIR, "client.js"), "utf8"));
+      const js = fs.readFileSync(path.join(DIR, "client.js"));
+      const gz = /\bgzip\b/.test(req.headers["accept-encoding"] ?? "");
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-store",
+        vary: "accept-encoding",
+        ...gz ? { "content-encoding": "gzip" } : {}
+      });
+      res.end(gz ? zlib.gzipSync(js) : js);
       return;
     }
     if (p === "/requests" && req.method === "POST") {

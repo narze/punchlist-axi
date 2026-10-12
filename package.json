@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsx build.ts",
-    "typecheck": "tsc -p . && tsc -p src && tsc -p src/client && tsc -p test",
+    "typecheck": "tsc -p . && tsc -p src && svelte-check --tsconfig src/client/tsconfig.json --fail-on-warnings --output machine && tsc -p test",
     "lint": "eslint --max-warnings 0 .",
     "check": "pnpm run --silent typecheck && pnpm run --silent lint",
     "pretest": "pnpm run --silent build",
@@ -35,9 +35,13 @@
     "@types/node": "^24.19.2",
     "axi-sdk-js": "^0.1.13",
     "esbuild": "^0.28.2",
+    "esbuild-svelte": "^0.9.5",
     "eslint": "^10.12.0",
+    "eslint-plugin-svelte": "^3.23.1",
     "jsdom": "^24.0.0",
     "launch-editor": "^2.14.2",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.1"

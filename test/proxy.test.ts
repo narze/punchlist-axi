@@ -68,6 +68,15 @@ try {
     assert.doesNotMatch(r.headers.get('set-cookie') ?? '', /Domain/i);
     assert.match(body, /href="\/abs"/);
   });
+  await t('serves the picker gzipped when the browser accepts it', async () => {
+    const js = fs.readFileSync(path.join(here, '../scripts/client.js'), 'utf8');
+    const gz = await get('/__pe/client.js', { 'accept-encoding': 'gzip' });
+    assert.equal(gz.headers.get('content-encoding'), 'gzip');
+    assert.equal(await gz.text(), js, 'fetch decodes it back to client.js');
+    const plain = await get('/__pe/client.js', { 'accept-encoding': 'identity' });
+    assert.equal(plain.headers.get('content-encoding'), null);
+    assert.equal(await plain.text(), js);
+  });
   await t('decodes gzip and strips CSP', async () => {
     const r = await get('/gz', { 'accept-encoding': 'gzip' });
     assert.equal(r.headers.get('content-security-policy'), null);
