@@ -1,7 +1,7 @@
 <!-- The picker: page gestures in, toolbar + note panel + tray + overlay out. State lives here; children only render. -->
 <script lang="ts">
   import { flushSync, onMount } from 'svelte';
-  import type { Note, Payload, PublicItem } from '../protocol.ts';
+  import type { FileRef, Note, OpenRequest, OpenResult, Payload, PublicItem } from '../protocol.ts';
   import { errorMessage, listen, post } from './api.ts';
   import { bestHint, describe, elementContext, fileHint, markdown, here, type Box, type Draft, type LiveNote, type Target, type Toast } from './context.ts';
   import { freezePage, setPickMode, watchPage } from './page.ts';
@@ -29,10 +29,10 @@
   function setNotes(next: LiveNote[]) { notes = next; save(next); }
 
   let toastId = 0;
-  function toast(text: string, opts: { ms?: number; reload?: boolean } = {}) {
-    const t = { id: ++toastId, text, reload: opts.reload ?? false };
+  function toast(text: string, opts: { ms?: number; reload?: boolean; file?: FileRef | undefined } = {}) {
+    const t = { id: ++toastId, text, reload: opts.reload ?? false, file: opts.file };
     toasts = [...toasts, t];
-    setTimeout(() => { toasts = toasts.filter(x => x !== t); }, opts.reload ? 15000 : opts.ms ?? 5000);
+    setTimeout(() => { toasts = toasts.filter(x => x !== t); }, opts.reload || opts.file ? 15000 : opts.ms ?? 5000);
   }
 
   function setPicking(on: boolean) {
@@ -71,14 +71,30 @@
     cancelDraft();
     toast(`📝 Note ${notes.length} added${picking ? ' — tap the next spot' : ''}`, { ms: 2500 });
   }
-  // the proxy opens it on the dev machine, so this also works from a phone
-  async function openFile() {
-    const file = draft?.file;
-    if (!file) return;
+  // On the proxy's own machine the proxy launches the editor. From anywhere else (tailscale, a phone) that would open it
+  // on the wrong screen, so the proxy only resolves the file and the browser follows the editor URL (Remote-SSH back).
+  const onProxyHost = () => ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  async function openFile(file: FileRef) {
+    const launch = onProxyHost();
     try {
-      const b = await post<{ file?: string }>('/open', file);
-      toast(`↗ Opened ${b.file ?? file.file} in your editor`, { ms: 2500 });
+      const b = await post<Partial<OpenResult>>('/open', { ...file, launch } satisfies OpenRequest);
+      if (!launch && b.url) { const a = document.createElement('a'); a.href = b.url; a.click(); }
+      toast(`↗ ${launch ? 'Opened' : 'Opening'} ${b.file ?? file.file} in your editor`, { ms: 2500 });
     } catch (e) { toast(`❌ Open failed: ${errorMessage(e)}`); }
+  }
+  // navigator.clipboard needs a secure context; plain http over a tailnet IP is not one
+  function copyFile(f: FileRef) {
+    const text = f.file + (f.line ? `:${String(f.line)}${f.column ? `:${String(f.column)}` : ''}` : '');
+    const fallback = () => {
+      const t = Object.assign(document.createElement('textarea'), { value: text });
+      (host.shadowRoot ?? document.body).append(t); t.select();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only way outside a secure context
+      const ok = document.execCommand('copy');
+      t.remove();
+      toast(ok ? `⧉ Copied ${text}` : `❌ Copy failed: ${text}`, { ms: ok ? 2500 : 5000 });
+    };
+    if (!window.isSecureContext || typeof navigator.clipboard === 'undefined') { fallback(); return; }
+    navigator.clipboard.writeText(text).then(() => { toast(`⧉ Copied ${text}`, { ms: 2500 }); }, fallback);
   }
   // no file in the hints (e.g. JSX built without source info): the agent finds it and runs `done --open`
   async function locate() {
@@ -129,7 +145,8 @@
     const over = it.status === 'done' || it.status === 'failed';
     // a locate result never reloads: the draft would be lost
     if (it.kind === 'locate') {
-      if (over) toast(`${it.status === 'done' ? '↗' : '❌'} ${it.message ?? (it.status === 'done' ? 'Opened' : 'Agent could not find the file')}`);
+      if (it.status === 'failed') toast(`❌ ${it.message ?? 'Agent could not find the file'}`);
+      if (it.status === 'done') toast(`🔎 ${it.message ?? 'Found'}`, { file: it.file });
       return;
     }
     if (!over) return;
@@ -170,13 +187,13 @@
 </script>
 
 <Overlay {notes} {draft} {hover} {marquee} />
-<Toasts {toasts} />
+<Toasts {toasts} onopen={(f: FileRef) => { void openFile(f); }} oncopy={copyFile} />
 {#if chip}
   <button class="chip" type="button" style:left="{chip.left}px" style:top="{chip.top}px"
     onpointerdown={e => { e.preventDefault(); }} onclick={pickSelection}>💬 Annotate</button>
 {/if}
 {#if draft}
-  <NotePanel {draft} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={openFile} onlocate={locate} onparent={parent} onchild={child} />
+  <NotePanel {draft} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={() => { if (draft?.file) void openFile(draft.file); }} oncopy={() => { if (draft?.file) copyFile(draft.file); }} onlocate={locate} onparent={parent} onchild={child} />
 {/if}
 {#if trayOpen}
   <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send} />
