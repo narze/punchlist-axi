@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generated from src/cli.mjs by `npm run build` - do not edit.
+// Generated from src/cli.mjs by `pnpm build` - do not edit.
 
 // src/cli.mjs
 import http from "node:http";
@@ -14,10 +14,10 @@ import crypto from "node:crypto";
 import { execFileSync, spawn as spawn2 } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-// node_modules/axi-sdk-js/dist/cli.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/cli.js
 import { basename as basename2 } from "node:path";
 
-// node_modules/axi-sdk-js/dist/errors.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/errors.js
 var AxiError = class extends Error {
   code;
   suggestions;
@@ -35,10 +35,10 @@ function exitCodeForError(error) {
   return 1;
 }
 
-// node_modules/axi-sdk-js/dist/output.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/output.js
 import { homedir } from "node:os";
 
-// node_modules/@toon-format/toon/dist/index.mjs
+// node_modules/.pnpm/@toon-format+toon@2.3.1/node_modules/@toon-format/toon/dist/index.mjs
 var NULL_LITERAL = "null";
 var DELIMITERS = {
   comma: ",",
@@ -443,7 +443,7 @@ function resolveOptions(options) {
   };
 }
 
-// node_modules/axi-sdk-js/dist/output.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/output.js
 function collapseHomeDirectory(path2, homeDir = homedir()) {
   if (!path2.startsWith(homeDir)) {
     return path2;
@@ -476,7 +476,7 @@ function renderError(message, code, suggestions = []) {
   return renderOutput(errorOutput(message, code, suggestions));
 }
 
-// node_modules/axi-sdk-js/dist/update.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/update.js
 import { spawn } from "node:child_process";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -998,7 +998,7 @@ async function runUpdate(options) {
   };
 }
 
-// node_modules/axi-sdk-js/dist/cli.js
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/cli.js
 var stdoutWithErrorHandler = /* @__PURE__ */ new WeakSet();
 function defaultFormatError(error) {
   if (error instanceof AxiError) {
@@ -1192,16 +1192,30 @@ var package_default = {
   version: "0.1.0",
   type: "module",
   description: "Click-to-edit for any running web app: a proxy injects a picker, your coding agent pulls the batch of notes and edits the source.",
-  bin: { "punchlist-axi": "scripts/punchlist.mjs" },
-  files: ["scripts/punchlist.mjs", "scripts/client.js", "SKILL.md"],
-  engines: { node: ">=18" },
+  bin: {
+    "punchlist-axi": "scripts/punchlist.mjs"
+  },
+  files: [
+    "scripts/punchlist.mjs",
+    "scripts/client.js",
+    "SKILL.md"
+  ],
+  engines: {
+    node: ">=18"
+  },
   scripts: {
-    build: "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --outfile=scripts/punchlist.mjs --banner:js='#!/usr/bin/env node\n// Generated from src/cli.mjs by `npm run build` - do not edit.'",
-    pretest: "npm run build --silent",
+    build: "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --outfile=scripts/punchlist.mjs --banner:js='#!/usr/bin/env node\n// Generated from src/cli.mjs by `pnpm build` - do not edit.'",
+    pretest: "pnpm run --silent build",
     test: "node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs"
   },
-  dependencies: { "axi-sdk-js": "^0.1.13" },
-  devDependencies: { esbuild: "^0.28.2", jsdom: "^24.0.0" }
+  dependencies: {
+    "axi-sdk-js": "^0.1.13"
+  },
+  devDependencies: {
+    esbuild: "^0.28.2",
+    jsdom: "^24.0.0"
+  },
+  packageManager: "pnpm@12.11.2"
 };
 
 // src/cli.mjs

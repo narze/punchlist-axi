@@ -45,5 +45,5 @@ Each note carries hints that point the agent at the source:
 ## Develop
 
 ```bash
-npm install && npm test
+pnpm install && pnpm test   # pnpm version comes from package.json "packageManager"
 ```
