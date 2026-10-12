@@ -21,10 +21,10 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runAxiCli, AxiError } from 'axi-sdk-js';
-import pkg from '../package.json' with { type: 'json' };
+import { VERSION } from './version.mjs';
 
-const SCRIPT = fileURLToPath(import.meta.url);
-const DIR = path.dirname(SCRIPT);
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT = path.join(DIR, 'punchlist.mjs'); // the entry point; this file is punchlist-cli.mjs once built
 const STATE_DIR = path.join(os.tmpdir(), 'punchlist');
 const PREFIX = '/__pe';
 const COOKIE = '__pe_auth';
@@ -651,7 +651,7 @@ const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServ
 
 await runAxiCli({
   description: 'Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source',
-  version: pkg.version,
+  version: VERSION,
   topLevelHelp: GUIDE + '\n',
   home,
   commands: cmds,

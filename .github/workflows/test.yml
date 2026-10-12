@@ -13,9 +13,9 @@ jobs:
       - uses: jdx/mise-action@v5 # node from mise.toml
       - uses: pnpm/action-setup@v6 # pnpm from package.json "packageManager"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test # rebuilds scripts/punchlist.mjs first
-      - name: Committed bundle matches src/
-        run: git diff --exit-code scripts/punchlist.mjs || (echo "::error::scripts/punchlist.mjs is stale - run pnpm build and commit it" && exit 1)
+      - run: pnpm test # rebuilds the bundles in scripts/ first
+      - name: Committed bundles match src/
+        run: test -z "$(git status --porcelain scripts/)" || (git status --short scripts/ && echo "::error::scripts/ is stale - run pnpm build and commit the result" && exit 1)
       # package.json promises node >= 18 at runtime; pnpm itself needs a newer node, so run the tests directly
       - uses: actions/setup-node@v7
         with:

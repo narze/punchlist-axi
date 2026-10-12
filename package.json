@@ -8,6 +8,7 @@
   },
   "files": [
     "scripts/punchlist.mjs",
+    "scripts/punchlist-cli.mjs",
     "scripts/client.js",
     "SKILL.md"
   ],
@@ -15,7 +16,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --outfile=scripts/punchlist.mjs --banner:js='#!/usr/bin/env node\n// Generated from src/cli.mjs by `pnpm build` - do not edit.'",
+    "build": "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --outfile=scripts/punchlist-cli.mjs && esbuild src/punchlist.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --external:./punchlist-cli.mjs --outfile=scripts/punchlist.mjs",
     "pretest": "pnpm run --silent build",
     "test": "node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs"
   },
