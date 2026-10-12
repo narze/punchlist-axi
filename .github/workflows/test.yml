@@ -21,4 +21,4 @@ jobs:
         with:
           node-version: 18
       - name: Tests on node 18
-        run: node --version && node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs
+        run: node --version && node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs && node test/ports.test.mjs
