@@ -2963,9 +2963,25 @@ function startOutput(st, state) {
     ]
   };
 }
+var BASE_PORT = () => Number(process.env.PUNCHLIST_PORT || 4e3);
+var PORT_TRIES = 20;
+function portFree(port, host) {
+  return new Promise((resolve2) => {
+    const srv = net.createServer().once("error", () => resolve2(false));
+    srv.listen(port, host, () => srv.close(() => resolve2(true)));
+  });
+}
 async function cmdStart(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
-  const port = Number(args.port ?? 4e3);
+  const auto = args.port == null, base = BASE_PORT();
+  let port = auto ? base : Number(args.port);
+  if (auto) {
+    const running = runningProxies();
+    const same = running.find((st) => st.target === target);
+    if (same) return startOutput(same, "already running");
+    const held = new Set(running.map((st) => st.port));
+    while (port < base + PORT_TRIES - 1 && (held.has(port) || !await portFree(port, args.host ?? "127.0.0.1"))) port++;
+  }
   const p = statePath(port);
   const old = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
   if (old && alive(old.pid)) {
@@ -2976,7 +2992,7 @@ async function cmdStart(args) {
   fs.rmSync(p, { force: true });
   const logFile = path.join(STATE_DIR, `${port}.log`);
   const fd = fs.openSync(logFile, "w");
-  const child = spawn2(process.execPath, [SCRIPT, "serve", ...process.argv.slice(3)], { detached: true, stdio: ["ignore", fd, fd] });
+  const child = spawn2(process.execPath, [SCRIPT, "serve", ...process.argv.slice(3)], { detached: true, stdio: ["ignore", fd, fd], env: { ...process.env, PUNCHLIST_PORT: String(port) } });
   child.unref();
   fs.closeSync(fd);
   let exited = false;
@@ -2985,8 +3001,8 @@ async function cmdStart(args) {
   });
   for (let i = 0; i < 100 && !exited; i++) {
     await new Promise((r) => setTimeout(r, 100));
-    const st = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
-    if (st?.pid === child.pid) return startOutput(st, "started");
+    const st = runningProxies().find((s) => s.pid === child.pid);
+    if (st) return startOutput(st, st.port === base || !auto ? "started" : `started (${st.port - base > 1 ? `ports ${base}-${st.port - 1} are` : `port ${base} is`} busy)`);
   }
   if (!exited) child.kill();
   const log = fs.readFileSync(logFile, "utf8").trim().slice(-1e3);
@@ -2994,7 +3010,9 @@ async function cmdStart(args) {
 }
 function cmdServe(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0]));
-  const port = Number(args.port ?? 4e3);
+  const auto = args.port == null;
+  let port = Number(args.port ?? BASE_PORT());
+  const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? "127.0.0.1";
   const noAuth = args["no-auth"] === true;
   const token = String(args.token ?? crypto.randomBytes(12).toString("base64url"));
@@ -3258,6 +3276,10 @@ function cmdServe(args) {
     printInfo(st);
   });
   server.on("error", (e) => {
+    if (e.code === "EADDRINUSE" && auto && port < lastPort) {
+      log(`port ${port} is in use, trying ${port + 1}`);
+      return server.listen(++port, host);
+    }
     console.error(e.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : e.message);
     process.exit(1);
   });
@@ -3482,11 +3504,13 @@ Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
   start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
-  Start the proxy in the background and print the link for the user. Safe to re-run.
+  Start the proxy in the background and print the link for the user. Safe to re-run: without
+  --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
   the conversation; ask the user only if it is unclear.
   --target   dev server port or URL (required)
-  --port     proxy port (default 4000)
+  --port     proxy port, strict (default: 4000, or the next free port when it is busy;
+             set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
   --no-auth  no access token (purely local use only)
 examples:
