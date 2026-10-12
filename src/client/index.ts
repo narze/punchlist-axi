@@ -1,16 +1,15 @@
 // punchlist picker — injected by the proxy into every HTML page.
 // Notes are snapshotted when added (so they survive navigation) and sent to the agent as one batch.
 // `pnpm build` bundles it into scripts/client.js, which the proxy serves as /__pe/client.js.
-import type { ElementContext, Hints, Note, NoteKind, Payload, PublicItem, Rect, ServerEvent } from '../protocol.ts';
+import type { ElementContext, FileRef, Hints, Note, NoteKind, OpenRequest, OpenResult, Payload, PublicItem, Rect, ServerEvent } from '../protocol.ts';
 
 declare global { interface Window { __pointEdit?: boolean } }
 
 // A note being written: live elements, not yet snapshotted.
-interface Draft { kind: NoteKind; els: Element[]; text?: string; area?: Rect; desc?: string; file?: FileHint | null }
+interface Draft { kind: NoteKind; els: Element[]; text?: string; area?: Rect; desc?: string; file?: FileRef | null }
 // A saved note keeps its live elements (null when gone) to draw its marks.
 type LiveNote = Note & { els: (Element | null)[] };
 interface Drag { x: number; y: number; moved: boolean }
-interface FileHint { file: string; line?: number; column?: number }
 
 // What dev builds of each framework hang on DOM nodes; read only for source hints.
 interface Fiber { type: unknown; return: Fiber | null; _debugSource?: { fileName: string; lineNumber: number } }
@@ -69,7 +68,7 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
     .label { font: 12px ui-monospace, monospace; color: #fbbf24; word-break: break-all; }
     .hint { font: 11px ui-monospace, monospace; color: #a1a1aa; margin-top: 2px; word-break: break-all; }
     .where { display: flex; gap: 8px; align-items: center; } .where .hint { flex: 1; min-width: 0; }
-    .sheet .open, .sheet .locate { padding: 2px 8px; font-size: 12px; flex: none; }
+    .sheet .open, .sheet .copypath, .sheet .locate { padding: 2px 8px; font-size: 12px; flex: none; }
     textarea { width: 100%; min-height: 64px; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;
       background: #09090b; color: #fafafa; font-size: 16px; resize: vertical; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -94,7 +93,7 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
   <button class="chip" type="button">💬 Annotate</button>
   <div class="sheet panel" role="dialog" aria-label="Add a note">
     <div class="label"></div>
-    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">↗ Open</button><button class="locate" type="button" title="Ask the agent to find this file and open it in your editor">🔎 Locate</button></div>
+    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">↗ Open</button><button class="copypath" type="button" title="Copy path:line">⧉ Copy</button><button class="locate" type="button" title="Ask the agent to find this file and open it in your editor">🔎 Locate</button></div>
     <textarea placeholder="What should change? (⌘/Ctrl+Enter to add)"></textarea>
     <div class="row">
       <button class="up" type="button" title="Select parent">⬆ parent</button>
@@ -205,7 +204,7 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
   }
   const bestHint = (h: Hints) => h.svelte[0] || h.rails.at(-1) || h.vue[0] || h.react[0] || '';
   // { file, line?, column? } from the best hint that names a file, or null (a bare component name)
-  function fileHint(h: Hints): FileHint | null {
+  function fileHint(h: Hints): FileRef | null {
     for (const s of [h.svelte[0], h.rails.at(-1), h.vue[0], h.react.find(r => r.endsWith(')'))]) {
       const m = s && (/\((.+):(\d+)\)$/.exec(s) ?? /^([^\s()]+\.\w+)(?::(\d+))?(?::(\d+))?$/.exec(s));
       if (m?.[1]) return { file: m[1], ...(m[2] ? { line: +m[2] } : {}), ...(m[3] ? { column: +m[3] } : {}) };
@@ -378,7 +377,7 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
     $('div', '.label').textContent = d.desc;
     $('div', '.hint').textContent = bestHint(first.hints) || first.selector;
     d.file = fileHint(first.hints);
-    $('button', '.open').style.display = d.file ? '' : 'none';
+    $('button', '.open').style.display = $('button', '.copypath').style.display = d.file ? '' : 'none';
     $('button', '.locate').style.display = d.file ? 'none' : '';
     const single = d.kind === 'element';
     $('button', '.up').style.display = $('button', '.down').style.display = single ? '' : 'none';
@@ -405,16 +404,8 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
     toast(`📝 Note ${notes.length} added${picking ? ' — tap the next spot' : ''}`, null, 2500);
   }
   $('button', '.add').onclick = addNote;
-  // the proxy opens it on the dev machine, so this also works from a phone
-  $('button', '.open').onclick = async () => {
-    if (!draft?.file) return;
-    try {
-      const r = await fetch(API + '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draft.file) });
-      const b = await r.json().catch(() => ({})) as { file?: string; error?: string };
-      if (!r.ok) throw new Error(b.error ?? String(r.status));
-      toast(`↗ Opened ${b.file ?? draft.file.file} in your editor`, null, 2500);
-    } catch (e) { toast(`❌ Open failed: ${errorMessage(e)}`, null); }
-  };
+  $('button', '.open').onclick = () => { if (draft?.file) void openFile(draft.file); };
+  $('button', '.copypath').onclick = () => { if (draft?.file) copyFile(draft.file); };
   // no file in the hints (e.g. JSX built without source info): the agent finds it and runs `done --open`
   $('button', '.locate').onclick = async () => {
     if (!draft) return;
@@ -552,6 +543,44 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
     } catch (e) { toast(`❌ Send failed: ${errorMessage(e)}`, null); }
   }
 
+  // ---------------------------------------------------------------- open / copy a source file
+  // On the proxy's own machine the proxy launches the editor. From anywhere else (tailscale, a phone) that would open it
+  // on the wrong screen, so the proxy only resolves the file and the browser follows the editor URL (Remote-SSH back).
+  const onProxyHost = () => ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const fileText = (f: FileRef) => f.file + (f.line ? `:${String(f.line)}${f.column ? `:${String(f.column)}` : ''}` : '');
+  async function openFile(f: FileRef) {
+    const launch = onProxyHost();
+    try {
+      const r = await fetch(API + '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...f, launch } satisfies OpenRequest) });
+      const b = await r.json().catch(() => ({})) as Partial<OpenResult> & { error?: string };
+      if (!r.ok) throw new Error(b.error ?? String(r.status));
+      if (!launch && b.url) { const a = document.createElement('a'); a.href = b.url; a.click(); }
+      toast(`↗ ${launch ? 'Opened' : 'Opening'} ${b.file ?? f.file} in your editor`, null, 2500);
+    } catch (e) { toast(`❌ Open failed: ${errorMessage(e)}`, null); }
+  }
+  // navigator.clipboard needs a secure context; plain http over a tailnet IP is not one
+  function copyFile(f: FileRef) {
+    const text = fileText(f);
+    const fallback = () => {
+      const t = Object.assign(document.createElement('textarea'), { value: text });
+      root.append(t); t.select();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only way outside a secure context
+      const ok = document.execCommand('copy');
+      t.remove();
+      toast(ok ? `⧉ Copied ${text}` : `❌ Copy failed: ${text}`, null, ok ? 2500 : 5000);
+    };
+    if (!window.isSecureContext || typeof navigator.clipboard === 'undefined') { fallback(); return; }
+    navigator.clipboard.writeText(text).then(() => { toast(`⧉ Copied ${text}`, null, 2500); }, fallback);
+  }
+  function fileActions(f: FileRef) {
+    const wrap = document.createElement('span');
+    wrap.style.cssText = 'display:flex;gap:6px;align-items:center;margin-left:auto';
+    const open = document.createElement('button'); open.textContent = '↗ Open'; open.onclick = () => { void openFile(f); };
+    const copy = document.createElement('button'); copy.textContent = '⧉ Copy'; copy.onclick = () => { copyFile(f); };
+    wrap.append(open, copy);
+    return wrap;
+  }
+
   // ---------------------------------------------------------------- status (SSE)
   const state = new Map<string, PublicItem>();
   const autoKey = '__pe_autoreload';
@@ -568,7 +597,8 @@ const failure = async (r: Response) => ((await r.json().catch(() => ({}))) as { 
     if (it.status === 'pending') toast(`📨 ${it.id} queued — ${it.label}`, null);
     if (it.status === 'working') toast(`🛠 ${it.id} agent is on it`, null);
     if (it.kind === 'locate') {
-      if (it.status === 'done' || it.status === 'failed') toast(`${it.status === 'done' ? '↗' : '❌'} ${it.message ?? (it.status === 'done' ? 'Opened' : 'Agent could not find the file')}`, null);
+      if (it.status === 'failed') toast(`❌ ${it.message ?? 'Agent could not find the file'}`, null);
+      if (it.status === 'done') toast(`🔎 ${it.message ?? 'Found'}`, it.file ? fileActions(it.file) : null);
       return;
     }
     if (it.status === 'done' || it.status === 'failed') {

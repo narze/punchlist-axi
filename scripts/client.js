@@ -66,7 +66,7 @@
     .label { font: 12px ui-monospace, monospace; color: #fbbf24; word-break: break-all; }
     .hint { font: 11px ui-monospace, monospace; color: #a1a1aa; margin-top: 2px; word-break: break-all; }
     .where { display: flex; gap: 8px; align-items: center; } .where .hint { flex: 1; min-width: 0; }
-    .sheet .open, .sheet .locate { padding: 2px 8px; font-size: 12px; flex: none; }
+    .sheet .open, .sheet .copypath, .sheet .locate { padding: 2px 8px; font-size: 12px; flex: none; }
     textarea { width: 100%; min-height: 64px; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;
       background: #09090b; color: #fafafa; font-size: 16px; resize: vertical; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -91,7 +91,7 @@
   <button class="chip" type="button">\u{1F4AC} Annotate</button>
   <div class="sheet panel" role="dialog" aria-label="Add a note">
     <div class="label"></div>
-    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">\u2197 Open</button><button class="locate" type="button" title="Ask the agent to find this file and open it in your editor">\u{1F50E} Locate</button></div>
+    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">\u2197 Open</button><button class="copypath" type="button" title="Copy path:line">\u29C9 Copy</button><button class="locate" type="button" title="Ask the agent to find this file and open it in your editor">\u{1F50E} Locate</button></div>
     <textarea placeholder="What should change? (\u2318/Ctrl+Enter to add)"></textarea>
     <div class="row">
       <button class="up" type="button" title="Select parent">\u2B06 parent</button>
@@ -427,7 +427,7 @@
       $("div", ".label").textContent = d.desc;
       $("div", ".hint").textContent = bestHint(first.hints) || first.selector;
       d.file = fileHint(first.hints);
-      $("button", ".open").style.display = d.file ? "" : "none";
+      $("button", ".open").style.display = $("button", ".copypath").style.display = d.file ? "" : "none";
       $("button", ".locate").style.display = d.file ? "none" : "";
       const single = d.kind === "element";
       $("button", ".up").style.display = $("button", ".down").style.display = single ? "" : "none";
@@ -463,16 +463,11 @@
       toast(`\u{1F4DD} Note ${notes.length} added${picking ? " \u2014 tap the next spot" : ""}`, null, 2500);
     }
     $("button", ".add").onclick = addNote;
-    $("button", ".open").onclick = async () => {
-      if (!draft?.file) return;
-      try {
-        const r = await fetch(API + "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft.file) });
-        const b = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(b.error ?? String(r.status));
-        toast(`\u2197 Opened ${b.file ?? draft.file.file} in your editor`, null, 2500);
-      } catch (e) {
-        toast(`\u274C Open failed: ${errorMessage(e)}`, null);
-      }
+    $("button", ".open").onclick = () => {
+      if (draft?.file) void openFile(draft.file);
+    };
+    $("button", ".copypath").onclick = () => {
+      if (draft?.file) copyFile(draft.file);
     };
     $("button", ".locate").onclick = async () => {
       if (!draft) return;
@@ -676,6 +671,58 @@
         toast(`\u274C Send failed: ${errorMessage(e)}`, null);
       }
     }
+    const onProxyHost = () => ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+    const fileText = (f) => f.file + (f.line ? `:${String(f.line)}${f.column ? `:${String(f.column)}` : ""}` : "");
+    async function openFile(f) {
+      const launch = onProxyHost();
+      try {
+        const r = await fetch(API + "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, launch }) });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(b.error ?? String(r.status));
+        if (!launch && b.url) {
+          const a = document.createElement("a");
+          a.href = b.url;
+          a.click();
+        }
+        toast(`\u2197 ${launch ? "Opened" : "Opening"} ${b.file ?? f.file} in your editor`, null, 2500);
+      } catch (e) {
+        toast(`\u274C Open failed: ${errorMessage(e)}`, null);
+      }
+    }
+    function copyFile(f) {
+      const text = fileText(f);
+      const fallback = () => {
+        const t = Object.assign(document.createElement("textarea"), { value: text });
+        root.append(t);
+        t.select();
+        const ok = document.execCommand("copy");
+        t.remove();
+        toast(ok ? `\u29C9 Copied ${text}` : `\u274C Copy failed: ${text}`, null, ok ? 2500 : 5e3);
+      };
+      if (!window.isSecureContext || typeof navigator.clipboard === "undefined") {
+        fallback();
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        toast(`\u29C9 Copied ${text}`, null, 2500);
+      }, fallback);
+    }
+    function fileActions(f) {
+      const wrap = document.createElement("span");
+      wrap.style.cssText = "display:flex;gap:6px;align-items:center;margin-left:auto";
+      const open = document.createElement("button");
+      open.textContent = "\u2197 Open";
+      open.onclick = () => {
+        void openFile(f);
+      };
+      const copy = document.createElement("button");
+      copy.textContent = "\u29C9 Copy";
+      copy.onclick = () => {
+        copyFile(f);
+      };
+      wrap.append(open, copy);
+      return wrap;
+    }
     const state = /* @__PURE__ */ new Map();
     const autoKey = "__pe_autoreload";
     const autoReload = () => {
@@ -699,7 +746,8 @@
       if (it.status === "pending") toast(`\u{1F4E8} ${it.id} queued \u2014 ${it.label}`, null);
       if (it.status === "working") toast(`\u{1F6E0} ${it.id} agent is on it`, null);
       if (it.kind === "locate") {
-        if (it.status === "done" || it.status === "failed") toast(`${it.status === "done" ? "\u2197" : "\u274C"} ${it.message ?? (it.status === "done" ? "Opened" : "Agent could not find the file")}`, null);
+        if (it.status === "failed") toast(`\u274C ${it.message ?? "Agent could not find the file"}`, null);
+        if (it.status === "done") toast(`\u{1F50E} ${it.message ?? "Found"}`, it.file ? fileActions(it.file) : null);
         return;
       }
       if (it.status === "done" || it.status === "failed") {
