@@ -390,8 +390,12 @@ function cmdServe(args: Args) {
   async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
     const p = url.pathname.slice(PREFIX.length);
     if (p === '/client.js') {
-      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(fs.readFileSync(path.join(DIR, 'client.js'), 'utf8')); return;
+      // read per request so a rebuild shows up on reload; gzipped because it goes to phones on every page load
+      const js = fs.readFileSync(path.join(DIR, 'client.js'));
+      const gz = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store', vary: 'accept-encoding',
+        ...(gz ? { 'content-encoding': 'gzip' } : {}) });
+      res.end(gz ? zlib.gzipSync(js) : js); return;
     }
     if (p === '/requests' && req.method === 'POST') {
       let payload: unknown;
