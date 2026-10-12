@@ -10,22 +10,24 @@ Nothing in your app changes. It works in front of Rails (Turbo), SvelteKit/Vite,
 
 With the skill installed, ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
 
-By hand:
+By hand, with Node 18+ (no install needed):
 
 ```bash
-node scripts/punchlist-axi.mjs start --target 5173      # proxy runs in the background, prints the link
-node scripts/punchlist-axi.mjs wait                     # blocks until you press Send
-node scripts/punchlist-axi.mjs done r1 "1: made it blue"
-node scripts/punchlist-axi.mjs stop
+npx -y punchlist-axi start --target 5173      # proxy runs in the background, prints the link
+npx -y punchlist-axi wait                     # blocks until you press Send
+npx -y punchlist-axi done r1 "1: made it blue"
+npx -y punchlist-axi stop
 ```
+
+Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --target 5173`. Every output ends with the next command to run, written the way you called it.
 
 Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. 🗒 lists your notes; notes survive reloads until sent.
 
 Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
-Optional: `node scripts/punchlist-axi.mjs setup hooks` adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
+Optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
 
-`node scripts/punchlist-axi.mjs --help` is the full guide for agents.
+`npx -y punchlist-axi --help` is the full guide for agents.
 
 ## Source hints
 
@@ -54,4 +56,5 @@ When the hints name no file (only a component name, or nothing), the panel shows
 
 ```bash
 pnpm install && pnpm test   # pnpm version comes from package.json "packageManager"
+node scripts/punchlist-axi.mjs --help   # run the checkout
 ```
