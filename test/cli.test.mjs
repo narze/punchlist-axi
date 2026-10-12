@@ -71,6 +71,10 @@ t('wait --help carries the source-finding guidance', () => {
   const out = run('wait', '--help').out;
   assert.match(out, /annotate_rendered_view_with_filenames/); assert.match(out, /smallest change/);
 });
+t('wait --help says to run wait in the background and always restart it', () => {
+  const out = run('wait', '--help').out;
+  assert.match(out, /background command/); assert.match(out, /run_in_background/); assert.match(out, /run wait again/i);
+});
 t('done --help explains partial failures', () => {
   assert.match(run('done', '--help').out, /still do the others/);
 });

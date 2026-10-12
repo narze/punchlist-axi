@@ -23,6 +23,7 @@ try {
     startOut = cli('start', '--target', String(TPORT), '--port', String(PPORT));
     assert.match(startOut, /__pe\/auth\?token=/);
     assert.match(startOut, /wait --port \d+/, 'tells the agent what to run next');
+    assert.match(startOut, /background command.*run_in_background/, 'tells the agent to listen in the background');
     assert.match(startOut, /Alt\+Shift\+E/, 'tells the agent how the user works the picker');
     assert.match(startOut, /reply text/, 'link goes into the reply text: users do not see command output');
     assert.match(startOut, /background/, 'says how to run wait without hiding the reply');
@@ -114,13 +115,16 @@ try {
     assert.throws(() => cli('show', 'r9', '--port', String(PPORT)), e => /NOT_FOUND/.test(e.stdout));
   });
   await t('done and status after a batch', async () => {
-    cli('done', 'r1', '1: bigger 2: border', '--port', String(PPORT));
+    const out = cli('done', 'r1', '1: bigger 2: border', '--port', String(PPORT));
+    assert.match(out, /wait --port \d+.*background command/, 'tells the agent to listen again in the background');
+    assert.match(out, /without the user asking/, 'says why: the user should not have to prompt again');
     const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^  r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
   await t('wait times out with exit 0 and a definitive empty state', async () => {
     const out = cli('wait', '--port', String(PPORT), '--timeout', '1');
     assert.match(out, /^request: none/m);
+    assert.match(out, /wait --port \d+.*background command/, 'tells the agent to keep listening in the background');
   });
   await t('stop ends the background proxy', async () => {
     const { pid } = JSON.parse(fs.readFileSync(STATE, 'utf8'));
