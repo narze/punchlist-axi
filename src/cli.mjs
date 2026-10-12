@@ -37,7 +37,7 @@ const FLAGS = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
   show: { port: 'v', full: 'b' },
-  done: { port: 'v', failed: 'b' },
+  done: { port: 'v', failed: 'b', open: 'v' },
   status: { port: 'v' },
   stop: { port: 'v' },
   setup: { project: 'b', remove: 'b' },
@@ -172,7 +172,7 @@ function startOutput(st, state) {
     links: l,
     help: [
       'Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie',
-      'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor',
+      'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor; when no file is known, 🔎 Locate asks you to find it',
       ...(l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : []),
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`,
     ],
@@ -232,7 +232,7 @@ function cmdServe(args) {
     const n = p.notes.length;
     return { label: n === 1 ? p.notes[0].comment.slice(0, 60) : `${n} notes`, prompt: p.notes.map(x => x.comment).join(' | ') };
   };
-  const publicItem = it => ({ id: it.id, status: it.status, message: it.message, ...summarize(it.payload) });
+  const publicItem = it => ({ id: it.id, ...(it.payload.kind ? { kind: it.payload.kind } : {}), status: it.status, message: it.message, ...summarize(it.payload) });
   const broadcast = obj => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const r of sse) r.write(line); };
 
   function dispatch() {
@@ -494,6 +494,11 @@ function requestView(it, port, full = false) {
       }),
     })),
   };
+  if (it.payload.kind === 'locate') return { ...view, request: { ...view.request, kind: 'locate' }, help: [
+    'The user wants to open the source of this target in their editor: find the file (and line) that renders it. Lookup only - do not edit anything',
+    'Use the hints first (a component name: grep for its definition), then visible text, ids, data-* attributes or uncommon classes',
+    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to open it (a path relative to the project); --failed "<why>" if you cannot find it`,
+  ] };
   const help = ['Handle every note (notes may touch the same file), then report once'];
   if (kinds.has('elements')) help.push('kind elements: apply the comment to every target; they often share one partial or component');
   if (kinds.has('text')) help.push('kind text: change exactly the selected text; it may live in an i18n file (config/locales, src/lib/i18n)');
@@ -535,9 +540,17 @@ async function cmdDone(args) {
   if (!id) throw usageError('request id is required', 'done', [`Run \`${PE} done <id> "<one line per note>"\``]);
   const st = loadState(args);
   const status = args.failed ? 'failed' : 'done';
+  let message = args._.slice(1).join(' ') || null;
+  if (args.open && !args.failed) {
+    const [, file, line, column] = args.open.match(/^(.+?)(?::(\d+))?(?::(\d+))?$/);
+    const o = await api(st, '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file, line, column }) });
+    const b = await o.json().catch(() => ({}));
+    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error || o.status}`, 'OPEN_FAILED', [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
+    message ??= `opened ${b.file}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`;
+  }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status, message: args._.slice(1).join(' ') || null }),
+    body: JSON.stringify({ status, message }),
   });
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, 'NOT_FOUND', [`Run \`${PE} status --port ${st.port}\` to list requests`]);
   if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
@@ -673,13 +686,15 @@ examples:
   Print one request again. --full adds selectors, ancestors, computed styles, boxes and untruncated HTML.
 examples:
   ${PE} show r1 --full --port 4000`,
-  done: `done <id> "<one line per note>" [--failed] [--port 4000]
+  done: `done <id> "<one line per note>" [--failed] [--open <file[:line[:col]]>] [--port 4000]
   Report a request back to the browser (shown as a toast). Run it once per request.
   If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
+  --open     open this project file in the user's editor first (answers a locate request)
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
-  ${PE} done r2 "need the new copy for the hero" --failed`,
+  ${PE} done r2 "need the new copy for the hero" --failed
+  ${PE} done r3 --open app/assets/javascripts/components/hero.js.jsx:12`,
   status: `status [--port 4000]
   List the requests on a proxy with counts by state.`,
   stop: `stop [--port 4000]
