@@ -22,15 +22,25 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.\nimport { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);' --outfile=scripts/punchlist-cli.mjs && esbuild src/punchlist-axi.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --external:./punchlist-cli.mjs --outfile=scripts/punchlist-axi.mjs",
+    "build": "tsx build.ts",
+    "typecheck": "tsc -p . && tsc -p src && tsc -p src/client && tsc -p test",
+    "lint": "eslint --max-warnings 0 .",
+    "check": "pnpm run --silent typecheck && pnpm run --silent lint",
     "pretest": "pnpm run --silent build",
-    "test": "node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs && node test/ports.test.mjs"
+    "test": "node --import tsx test/cli.test.ts && node --import tsx test/proxy.test.ts && node --import tsx test/client.test.ts && node --import tsx test/drag.test.ts && node --import tsx test/ports.test.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^24.19.2",
     "axi-sdk-js": "^0.1.13",
     "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
     "jsdom": "^24.0.0",
-    "launch-editor": "^2.14.2"
+    "launch-editor": "^2.14.2",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1"
   },
   "packageManager": "pnpm@12.11.2"
 }

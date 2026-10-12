@@ -1,6 +1,6 @@
 // punchlist — proxy any local web app, inject an element picker, and queue
 // "change this element" requests for whatever coding agent is running the loop.
-// Source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
+// TypeScript source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
 //   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
@@ -19,10 +19,13 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { runAxiCli, AxiError, installSessionStartHooks, uninstallSessionStartHooks, sessionStartHookStatus } from 'axi-sdk-js';
+import type { AxiCliCommand } from 'axi-sdk-js';
 import launchEditor from 'launch-editor';
-import { VERSION } from './version.mjs';
+import type { Item, LooseElement, Payload, PublicItem, ServerEvent, Status } from './protocol.ts';
+import { VERSION } from './version.ts';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(DIR, 'punchlist-axi.mjs'); // the entry point; this file is punchlist-cli.mjs once built
@@ -32,8 +35,11 @@ const COOKIE = '__pe_auth';
 
 // ---------------------------------------------------------------- utils
 
-const SERVE_FLAGS = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 'v' };
-const FLAGS = {
+type Command = 'start' | 'serve' | 'wait' | 'show' | 'done' | 'status' | 'stop' | 'setup';
+type FlagSpec = Record<string, 'v' | 'b'>; // v = takes a value, b = boolean
+
+const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 'v' };
+const FLAGS: Record<Command, FlagSpec> = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
   show: { port: 'v', full: 'b' },
@@ -43,94 +49,109 @@ const FLAGS = {
   setup: { project: 'b', remove: 'b' },
 };
 
-function usageError(msg, cmd, extra = []) {
+// Every flag of every command; parseArgs only lets through the ones in FLAGS[cmd].
+interface Args {
+  _: string[];
+  target?: string; port?: string; host?: string; 'no-auth'?: true; token?: string;
+  timeout?: string; json?: true; full?: true; failed?: true; open?: string; project?: true; remove?: true;
+}
+
+// Written by `serve` to STATE_DIR/<port>.json; every other command finds the proxy through it.
+interface ProxyState { port: number; host: string; target: string; token: string; auth: boolean; pid: number; cwd?: string }
+
+const errorMessage = (e: unknown) => e instanceof Error ? e.message : String(e);
+
+function usageError(msg: string, cmd: Command, extra: string[] = []) {
   const flags = Object.keys(FLAGS[cmd]).map(f => `--${f}`).join(', ');
   return new AxiError(msg, 'VALIDATION_ERROR', [...extra, `Valid flags for \`${cmd}\`: ${flags} (--help always allowed)`]);
 }
 
 // Rejects unknown flags (AXI: never silently drop input). Boolean flags never take a value.
-function parseArgs(cmd, argv) {
-  const spec = FLAGS[cmd], args = { _: [] };
+function parseArgs(cmd: Command, argv: string[]): Args {
+  const spec = FLAGS[cmd], positional: string[] = [], flags: Record<string, string | true> = {};
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (!a.startsWith('--')) { args._.push(a); continue; }
+    const a = argv[i] ?? '';
+    if (!a.startsWith('--')) { positional.push(a); continue; }
     const eq = a.indexOf('=');
     const k = eq > -1 ? a.slice(2, eq) : a.slice(2);
     let v = eq > -1 ? a.slice(eq + 1) : undefined;
     if (!spec[k]) throw usageError(`unknown flag --${k} for \`${cmd}\``, cmd);
     if (spec[k] === 'b') {
       if (v !== undefined) throw usageError(`--${k} takes no value`, cmd);
-      args[k] = true; continue;
+      flags[k] = true; continue;
     }
     if (v === undefined) {
       v = argv[++i];
       if (v === undefined || v.startsWith('--')) throw usageError(`--${k} needs a value`, cmd);
     }
-    args[k] = v;
+    flags[k] = v;
   }
-  return args;
+  return { ...flags, _: positional }; // keys and kinds checked against FLAGS above
 }
 
-function normalizeTarget(t) {
+function normalizeTarget(t: string | undefined) {
   if (!t) throw usageError('--target is required (dev server port or URL)', 'start', [`Run \`${PE} start --target 5173\` or \`--target http://localhost:3000\``]);
-  t = String(t);
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, '');
 }
 
 
-function statePath(port) { return path.join(STATE_DIR, `${port}.json`); }
+function statePath(port: string | number) { return path.join(STATE_DIR, `${port}.json`); }
 
-function loadState(args) {
+function readState(file: string) { return JSON.parse(fs.readFileSync(file, 'utf8')) as ProxyState; }
+
+function loadState(args: Args) {
   if (args.port) {
     const p = statePath(args.port);
     if (!fs.existsSync(p)) throw notRunning(`no proxy running on port ${args.port}`, args.port);
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
+    return readState(p);
   }
   const files = fs.existsSync(STATE_DIR) ? fs.readdirSync(STATE_DIR).filter(f => f.endsWith('.json')) : [];
-  if (!files.length) throw notRunning('no proxy running');
   files.sort((a, b) => fs.statSync(path.join(STATE_DIR, b)).mtimeMs - fs.statSync(path.join(STATE_DIR, a)).mtimeMs);
-  return JSON.parse(fs.readFileSync(path.join(STATE_DIR, files[0]), 'utf8'));
+  if (!files[0]) throw notRunning('no proxy running');
+  return readState(path.join(STATE_DIR, files[0]));
 }
 
-function notRunning(msg, port) {
+function notRunning(msg: string, port?: string) {
   return new AxiError(msg, 'NOT_RUNNING', [`Run \`${PE} start --target <port|url>${port ? ` --port ${port}` : ''}\``]);
 }
 
-async function api(st, p, opts = {}) {
+type ApiInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
+
+async function api(st: ProxyState, p: string, opts: ApiInit = {}) {
   try { return await fetch(`${apiBase(st)}${p}`, { ...opts, headers: { 'x-pe-token': st.token, ...opts.headers } }); }
   catch { throw new AxiError(`proxy on port ${st.port} is not responding`, 'NOT_RESPONDING', [`Run \`${PE} start --target ${st.target} --port ${st.port}\` to restart it`]); }
 }
 
-function apiBase(st) {
+function apiBase(st: ProxyState) {
   const h = ['0.0.0.0', '::', ''].includes(st.host) ? '127.0.0.1' : st.host;
   return `http://${h.includes(':') ? `[${h}]` : h}:${st.port}${PREFIX}`;
 }
 
-function readBody(req, limit = 2e6) {
-  return new Promise((resolve, reject) => {
-    let size = 0; const chunks = [];
-    req.on('data', c => { size += c.length; if (size > limit) { reject(new Error('body too large')); req.destroy(); } else chunks.push(c); });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+function readBody(req: http.IncomingMessage, limit = 2e6) {
+  return new Promise<string>((resolve, reject) => {
+    let size = 0; const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => { size += c.length; if (size > limit) { reject(new Error('body too large')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { resolve(Buffer.concat(chunks).toString('utf8')); });
     req.on('error', reject);
   });
 }
 
-function json(res, status, obj) {
+function json(res: http.ServerResponse, status: number, obj: unknown) {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
 
-function getCookie(header, name) {
-  for (const part of (header || '').split(';')) {
+function getCookie(header: string | undefined, name: string) {
+  for (const part of (header ?? '').split(';')) {
     const [k, ...v] = part.trim().split('=');
     if (k === name) return v.join('=');
   }
   return null;
 }
 
-function stripCookie(header, name) {
+function stripCookie(header: string | undefined, name: string) {
   if (!header) return header;
   const kept = header.split(';').map(s => s.trim()).filter(s => s && !s.startsWith(name + '='));
   return kept.length ? kept.join('; ') : undefined;
@@ -138,17 +159,17 @@ function stripCookie(header, name) {
 
 function tailscaleName() {
   try {
-    const out = execFileSync('tailscale', ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 });
-    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, '') || null;
+    const out = execFileSync('tailscale', ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, encoding: 'utf8' });
+    return (JSON.parse(out) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, '') ?? null;
   } catch { return null; }
 }
 
 // ---------------------------------------------------------------- start (background) / serve (foreground)
 
-function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+function alive(pid: number) { try { process.kill(pid, 0); return true; } catch { return false; } }
 
-function printInfo(st) {
-  const authPath = st.auth === false ? '/' : `${PREFIX}/auth?token=${st.token}`;
+function printInfo(st: ProxyState) {
+  const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
   const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`);
@@ -159,13 +180,13 @@ function printInfo(st) {
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 
-function links(st) {
-  const authPath = st.auth === false ? '/' : `${PREFIX}/auth?token=${st.token}`;
+function links(st: ProxyState) {
+  const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
   const ts = tailscaleName();
   return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(ts ? { tailscale: `https://${ts}${authPath}` } : {}) };
 }
 
-function startOutput(st, state) {
+function startOutput(st: ProxyState, state: string) {
   const l = links(st);
   return {
     proxy: { target: st.target, port: st.port, pid: st.pid, state },
@@ -179,19 +200,19 @@ function startOutput(st, state) {
   };
 }
 
-const BASE_PORT = () => Number(process.env.PUNCHLIST_PORT || 4000);
+const BASE_PORT = () => Number(process.env['PUNCHLIST_PORT'] || 4000);
 const PORT_TRIES = 20;
 
-function portFree(port, host) {
-  return new Promise(resolve => {
-    const srv = net.createServer().once('error', () => resolve(false));
-    srv.listen(port, host, () => srv.close(() => resolve(true)));
+function portFree(port: number, host: string) {
+  return new Promise<boolean>(resolve => {
+    const srv = net.createServer().once('error', () => { resolve(false); });
+    srv.listen(port, host, () => srv.close(() => { resolve(true); }));
   });
 }
 
 // Runs `serve` as a detached child so the agent's shell is free, and returns once it listens.
 // Without --port: reuse a proxy for the same target, else the first free port from 4000 (like Vite).
-async function cmdStart(args) {
+async function cmdStart(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
@@ -203,7 +224,7 @@ async function cmdStart(args) {
     while (port < base + PORT_TRIES - 1 && (held.has(port) || !(await portFree(port, args.host ?? '127.0.0.1')))) port++;
   }
   const p = statePath(port);
-  const old = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+  const old = fs.existsSync(p) ? readState(p) : null;
   if (old && alive(old.pid)) {
     if (old.target !== target) throw new AxiError(`port ${port} already proxies ${old.target}`, 'PORT_BUSY', [`Run \`${PE} stop --port ${port}\` first, or pick another --port`]);
     return startOutput(old, 'already running');
@@ -216,27 +237,28 @@ async function cmdStart(args) {
   const child = spawn(process.execPath, [SCRIPT, 'serve', ...process.argv.slice(3)], { detached: true, stdio: ['ignore', fd, fd], env: { ...process.env, PUNCHLIST_PORT: String(port) } });
   child.unref();
   fs.closeSync(fd);
-  let exited = false; child.on('exit', () => { exited = true; });
-  for (let i = 0; i < 100 && !exited; i++) {
+  const exit = { seen: false }; // an object, so the loop condition sees the 'exit' handler's write
+  child.on('exit', () => { exit.seen = true; });
+  for (let i = 0; i < 100 && !exit.seen; i++) {
     await new Promise(r => setTimeout(r, 100));
     const st = runningProxies().find(s => s.pid === child.pid);
     if (st) return startOutput(st, st.port === base || !auto ? 'started'
       : `started (${st.port - base > 1 ? `ports ${base}-${st.port - 1} are` : `port ${base} is`} busy)`);
   }
-  if (!exited) child.kill();
+  if (!exit.seen) child.kill();
   const log = fs.readFileSync(logFile, 'utf8').trim().slice(-1000);
   throw new AxiError(`proxy did not start: ${log || 'no output'}`, 'START_FAILED', [`Full log: ${logFile}`]);
 }
 
-function cmdServe(args) {
+function cmdServe(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0]));
   const auto = args.port == null;
   let port = Number(args.port ?? BASE_PORT()); // let: shifts on EADDRINUSE without --port
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? '127.0.0.1';
   const noAuth = args['no-auth'] === true;
-  const token = String(args.token ?? crypto.randomBytes(12).toString('base64url'));
-  const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
+  const token = args.token ?? crypto.randomBytes(12).toString('base64url');
+  const targetPort = Number(target.port) || (target.protocol === 'https:' ? 443 : 80);
   const lib = target.protocol === 'https:' ? https : http;
 
   // Absolute URLs the app may print for itself (rewritten to relative in HTML).
@@ -246,17 +268,17 @@ function cmdServe(args) {
   }
   const origins = [...new Set(selfOrigins)];
 
-  const items = [];          // { id, status: pending|working|done|failed, createdAt, payload, message }
-  const waiters = new Set(); // long-poll responses from `wait`
-  const sse = new Set();
+  const items: Item[] = [];
+  const waiters = new Set<{ res: http.ServerResponse; timer?: NodeJS.Timeout }>(); // long-poll responses from `wait`
+  const sse = new Set<http.ServerResponse>();
   let seq = 0;
 
-  const summarize = p => {
+  const summarize = (p: Payload<LooseElement>) => {
     const n = p.notes.length;
-    return { label: n === 1 ? p.notes[0].comment.slice(0, 60) : `${n} notes`, prompt: p.notes.map(x => x.comment).join(' | ') };
+    return { label: n === 1 ? (p.notes[0]?.comment ?? '').slice(0, 60) : `${n} notes`, prompt: p.notes.map(x => x.comment).join(' | ') };
   };
-  const publicItem = it => ({ id: it.id, ...(it.payload.kind ? { kind: it.payload.kind } : {}), status: it.status, message: it.message, ...summarize(it.payload) });
-  const broadcast = obj => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const r of sse) r.write(line); };
+  const publicItem = (it: Item): PublicItem => ({ id: it.id, ...(it.payload.kind ? { kind: it.payload.kind } : {}), status: it.status, message: it.message, ...summarize(it.payload) });
+  const broadcast = (obj: ServerEvent) => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const r of sse) r.write(line); };
 
   function dispatch() {
     for (const w of waiters) {
@@ -270,31 +292,30 @@ function cmdServe(args) {
     }
   }
 
-  function authed(req) {
+  function authed(req: http.IncomingMessage) {
     if (noAuth) return true;
     return getCookie(req.headers.cookie, COOKIE) === token || req.headers['x-pe-token'] === token;
   }
 
-  function upstreamHeaders(req) {
+  function upstreamHeaders(req: http.IncomingMessage) {
     const h = { ...req.headers };
     // Look like a plain local request so dev servers don't trip on host checks
     // (Rails config.hosts, Vite allowedHosts) or CSRF origin checks.
     h.host = target.host;
     if (h.origin) h.origin = target.origin;
     if (h.referer) { try { const u = new URL(h.referer); h.referer = target.origin + u.pathname + u.search; } catch {} }
-    for (const k of Object.keys(h)) if (k.startsWith('x-forwarded-') || k === 'forwarded' || k === 'x-pe-token') delete h[k];
     delete h['accept-encoding']; // ask for identity so HTML can be rewritten (decoded anyway if ignored)
     const c = stripCookie(h.cookie, COOKIE);
     if (c) h.cookie = c; else delete h.cookie;
-    return h;
+    return Object.fromEntries(Object.entries(h).filter(([k]) => !k.startsWith('x-forwarded-') && k !== 'forwarded' && k !== 'x-pe-token'));
   }
 
-  function rewriteLocation(loc) {
+  function rewriteLocation(loc: string) {
     for (const o of origins) if (loc === o || loc.startsWith(o + '/') || loc.startsWith(o + '?')) return loc.slice(o.length) || '/';
     return loc;
   }
 
-  function injectHtml(html) {
+  function injectHtml(html: string) {
     for (const o of origins) html = html.split(o + '/').join('/').split(o).join('/');
     const tag = `<script src="${PREFIX}/client.js" defer data-pe></script>`;
     if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, tag + '</head>');
@@ -302,100 +323,101 @@ function cmdServe(args) {
     return html + tag;
   }
 
-  function proxy(req, res) {
+  function proxy(req: http.IncomingMessage, res: http.ServerResponse) {
     const upReq = lib.request({
       hostname: target.hostname.replace(/^\[|\]$/g, ''), port: targetPort, method: req.method, path: req.url,
       headers: upstreamHeaders(req), rejectUnauthorized: false,
     }, upRes => {
+      const status = upRes.statusCode ?? 502;
       const h = { ...upRes.headers };
       delete h['content-security-policy'];
       delete h['content-security-policy-report-only'];
       if (h.location) h.location = rewriteLocation(h.location);
       if (h['set-cookie']) h['set-cookie'] = h['set-cookie'].map(c => c.replace(/;\s*domain=[^;]*/i, ''));
 
-      const isHtml = /text\/html/i.test(h['content-type'] || '');
-      if (!isHtml || req.method === 'HEAD' || upRes.statusCode === 204 || upRes.statusCode === 304) {
-        res.writeHead(upRes.statusCode, h);
+      const isHtml = /text\/html/i.test(h['content-type'] ?? '');
+      if (!isHtml || req.method === 'HEAD' || status === 204 || status === 304) {
+        res.writeHead(status, h);
         upRes.pipe(res);
         return;
       }
-      let stream = upRes;
-      const enc = String(h['content-encoding'] || '').toLowerCase();
+      let stream: Readable = upRes;
+      const enc = (h['content-encoding'] ?? '').toLowerCase();
       if (enc === 'gzip') stream = upRes.pipe(zlib.createGunzip());
       else if (enc === 'br') stream = upRes.pipe(zlib.createBrotliDecompress());
       else if (enc === 'deflate') stream = upRes.pipe(zlib.createInflate());
-      const chunks = [];
-      stream.on('data', c => chunks.push(c));
+      const chunks: Buffer[] = [];
+      stream.on('data', (c: Buffer) => chunks.push(c));
       stream.on('error', e => { if (!res.headersSent) res.writeHead(502); res.end(`punchlist: decode error ${e.message}`); });
       stream.on('end', () => {
         const body = Buffer.from(injectHtml(Buffer.concat(chunks).toString('utf8')), 'utf8');
         delete h['content-encoding'];
         delete h['transfer-encoding'];
         h['content-length'] = String(body.length);
-        res.writeHead(upRes.statusCode, h);
+        res.writeHead(status, h);
         res.end(body);
       });
     });
-    upReq.on('error', e => {
+    upReq.on('error', (e: NodeJS.ErrnoException) => {
       if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end(`punchlist: cannot reach ${target.origin} (${e.code || e.message}). Is the dev server running?`);
+      res.end(`punchlist: cannot reach ${target.origin} (${e.code ?? e.message}). Is the dev server running?`);
     });
     req.pipe(upReq);
   }
 
-  async function api(req, res, url) {
+  async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
     const p = url.pathname.slice(PREFIX.length);
     if (p === '/client.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(fs.readFileSync(path.join(DIR, 'client.js'), 'utf8'));
+      res.end(fs.readFileSync(path.join(DIR, 'client.js'), 'utf8')); return;
     }
     if (p === '/requests' && req.method === 'POST') {
-      let payload;
-      try { payload = JSON.parse(await readBody(req)); } catch (e) { return json(res, 400, { error: e.message }); }
-      if (!Array.isArray(payload.notes) || !payload.notes.length || payload.notes.some(n => !n.comment?.trim() || !n.elements?.length))
-        return json(res, 400, { error: 'expected { notes: [{ comment, elements: [...] }] }' });
-      const it = { id: `r${++seq}`, status: 'pending', createdAt: new Date().toISOString(), payload, message: null };
+      let payload: unknown;
+      try { payload = JSON.parse(await readBody(req)); } catch (e) { json(res, 400, { error: errorMessage(e) }); return; }
+      if (!isPayload(payload)) { json(res, 400, { error: 'expected { notes: [{ comment, elements: [...] }] }' }); return; }
+      const it: Item = { id: `r${++seq}`, status: 'pending', createdAt: new Date().toISOString(), payload, message: null };
       items.push(it);
       log(`received ${it.id}: ${summarize(payload).prompt.slice(0, 100)}`);
       broadcast({ type: 'update', item: publicItem(it) });
       dispatch();
-      return json(res, 201, publicItem(it));
+      json(res, 201, publicItem(it)); return;
     }
-    if (p === '/requests' && req.method === 'GET') return json(res, 200, items.map(publicItem));
-    let m;
-    if ((m = p.match(/^\/requests\/([\w-]+)$/)) && req.method === 'GET') {
-      const it = items.find(i => i.id === m[1]);
-      return it ? json(res, 200, it) : json(res, 404, { error: 'unknown id' });
+    if (p === '/requests' && req.method === 'GET') { json(res, 200, items.map(publicItem)); return; }
+    const one = /^\/requests\/([\w-]+)$/.exec(p)?.[1], done = /^\/requests\/([\w-]+)\/done$/.exec(p)?.[1];
+    if (one && req.method === 'GET') {
+      const it = items.find(i => i.id === one);
+      if (it) json(res, 200, it); else json(res, 404, { error: 'unknown id' });
+      return;
     }
-    if ((m = p.match(/^\/requests\/([\w-]+)\/done$/)) && req.method === 'POST') {
-      const it = items.find(i => i.id === m[1]);
-      if (!it) return json(res, 404, { error: 'unknown id' });
-      let body = {};
-      try { body = JSON.parse((await readBody(req)) || '{}'); } catch {}
+    if (done && req.method === 'POST') {
+      const it = items.find(i => i.id === done);
+      if (!it) { json(res, 404, { error: 'unknown id' }); return; }
+      let body: { status?: unknown; message?: unknown } = {};
+      try { body = JSON.parse((await readBody(req)) || '{}') as typeof body; } catch {}
       it.status = body.status === 'failed' ? 'failed' : 'done';
-      it.message = body.message || null;
+      it.message = typeof body.message === 'string' && body.message ? body.message : null;
       log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ''}`);
       broadcast({ type: 'update', item: publicItem(it) });
-      return json(res, 200, publicItem(it));
+      json(res, 200, publicItem(it)); return;
     }
     if (p === '/open' && req.method === 'POST') {
-      let body;
-      try { body = JSON.parse(await readBody(req)); } catch (e) { return json(res, 400, { error: e.message }); }
-      if (typeof body.file !== 'string' || !body.file) return json(res, 400, { error: 'expected { file, line?, column? }' });
+      let body: { file?: unknown; line?: unknown; column?: unknown };
+      try { body = JSON.parse(await readBody(req)) as typeof body; } catch (e) { json(res, 400, { error: errorMessage(e) }); return; }
+      if (typeof body.file !== 'string' || !body.file) { json(res, 400, { error: 'expected { file, line?, column? }' }); return; }
       const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
-      return json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error }); return;
     }
     if (p === '/next' && req.method === 'GET') {
       const timeout = Math.min(Number(url.searchParams.get('timeout')) || 25000, 60000);
-      const w = { res };
+      const w: { res: http.ServerResponse; timer?: NodeJS.Timeout } = { res };
       w.timer = setTimeout(() => { waiters.delete(w); res.writeHead(204); res.end(); }, timeout);
       req.on('close', () => { clearTimeout(w.timer); waiters.delete(w); });
       waiters.add(w);
-      return dispatch();
+      dispatch(); return;
     }
     if (p === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ type: 'snapshot', items: items.map(publicItem) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'snapshot', items: items.map(publicItem) } satisfies ServerEvent)}\n\n`);
       sse.add(res);
       const ka = setInterval(() => res.write(': ka\n\n'), 25000);
       req.on('close', () => { clearInterval(ka); sse.delete(res); });
@@ -405,76 +427,86 @@ function cmdServe(args) {
   }
 
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
+    const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get('next');
-      const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+      const dest = next?.startsWith('/') && !next.startsWith('//') ? next : '/';
       if (noAuth || url.searchParams.get('token') === token) {
         res.writeHead(302, { 'set-cookie': `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`, location: dest });
       } else res.writeHead(403, { 'content-type': 'text/plain' });
-      return res.end(res.statusCode === 403 ? 'punchlist: bad token' : '');
+      res.end(res.statusCode === 403 ? 'punchlist: bad token' : ''); return;
     }
     if (!authed(req)) {
       res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
-      return res.end('punchlist: open the link printed by `punchlist start` (it carries the access token).');
+      res.end('punchlist: open the link printed by `punchlist start` (it carries the access token).'); return;
     }
-    if (url.pathname.startsWith(PREFIX + '/')) return api(req, res, url).catch(e => json(res, 500, { error: e.message }));
+    if (url.pathname.startsWith(PREFIX + '/')) { handleApi(req, res, url).catch((e: unknown) => { json(res, 500, { error: errorMessage(e) }); }); return; }
     proxy(req, res);
   });
 
   // WebSockets (Vite HMR, ActionCable, LiveReload…): raw pipe after rewriting headers.
-  server.on('upgrade', (req, socket, head) => {
-    if (!authed(req)) return socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
+  server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+    if (!authed(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n'); return; }
     const opts = { host: target.hostname.replace(/^\[|\]$/g, ''), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
-    const up = (target.protocol === 'https:' ? tls : net).connect(opts, () => {
-      let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
+    const up = target.protocol === 'https:' ? tls.connect(opts, onConnect) : net.connect(opts, onConnect);
+    function onConnect() {
+      let raw = `${req.method ?? 'GET'} ${req.url ?? '/'} HTTP/1.1\r\n`;
       const h = upstreamHeaders(req);
-      for (const [k, v] of Object.entries(h)) for (const vv of [].concat(v)) raw += `${k}: ${vv}\r\n`;
+      for (const [k, v] of Object.entries(h)) for (const vv of [v ?? []].flat()) raw += `${k}: ${vv}\r\n`;
       up.write(raw + '\r\n');
-      if (head?.length) up.write(head);
+      if (head.length) up.write(head);
       up.pipe(socket); socket.pipe(up);
-    });
+    }
     up.on('error', () => socket.destroy());
     socket.on('error', () => up.destroy());
   });
 
   // Opens a source file from a hint in the editor on this machine (not the browser's), so it works from a phone.
   // Only files inside the project (the cwd we were started from) - the hint comes from the page.
-  function openInEditor(file, line, column) {
+  function openInEditor(file: string, line: number, column: number): { status: 200; file: string } | { status: 403 | 404 | 500; error: string } {
     const root = process.cwd();
-    const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
+    const inside = (dir: string, f: string) => f === dir || f.startsWith(dir + path.sep);
     const abs = path.resolve(root, file);
     if (!inside(root, abs)) return { status: 403, error: 'file is outside the project' };
     let real;
     try { real = fs.realpathSync(abs); } catch { return { status: 404, error: `${file} not found in ${root}` }; }
     if (!inside(fs.realpathSync(root), real)) return { status: 403, error: 'file is outside the project' };
-    let failed = null;
-    launchEditor(abs + (line ? `:${line}${column ? `:${column}` : ''}` : ''), (f, msg) => { failed = msg || 'no editor found (set LAUNCH_EDITOR or EDITOR)'; });
-    if (failed) return { status: 500, error: failed }; // set synchronously when no editor is found
+    const failures: string[] = []; // filled synchronously when no editor is found
+    launchEditor(abs + (line ? `:${line}${column ? `:${column}` : ''}` : ''), (_f, msg) => failures.push(msg ?? 'no editor found (set LAUNCH_EDITOR or EDITOR)'));
+    if (failures[0]) return { status: 500, error: failures[0] };
     const rel = path.relative(root, abs);
     log(`opened ${rel}${line ? `:${line}` : ''} in the editor`);
     return { status: 200, file: rel };
   }
 
-  function log(msg) { console.log(`[punchlist ${new Date().toLocaleTimeString()}] ${msg}`); }
+  function log(msg: string) { console.log(`[punchlist ${new Date().toLocaleTimeString()}] ${msg}`); }
 
   server.listen(port, host, () => {
     fs.mkdirSync(STATE_DIR, { recursive: true });
     // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
-    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
+    const st: ProxyState = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
   });
   // runs detached with output in the log file, so fail there (start reads it back)
-  server.on('error', e => {
-    if (e.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); return server.listen(++port, host); }
+  server.on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); server.listen(++port, host); return; }
     console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1);
   });
 
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
-  return new Promise(() => {}); // keep serving; output goes to the log
+  return new Promise<never>(() => undefined); // keep serving; output goes to the log
+}
+
+// The checks the browser's request has to pass; the rest of the payload is read defensively (see LooseElement).
+function isPayload(x: unknown): x is Payload<LooseElement> {
+  const notes = (x as { notes?: unknown } | null)?.notes;
+  return Array.isArray(notes) && notes.length > 0 && notes.every((n: unknown) => {
+    const { comment, elements } = (n ?? {}) as { comment?: unknown; elements?: unknown };
+    return typeof comment === 'string' && comment.trim() !== '' && Array.isArray(elements) && elements.length > 0;
+  });
 }
 
 // ---------------------------------------------------------------- agent side
@@ -482,11 +514,11 @@ function cmdServe(args) {
 const HTML_LIMIT = 600;
 
 // One request as AXI output: minimal fields by default, everything with `full`.
-function requestView(it, port, full = false) {
+function requestView(it: Item, port: number, full = false) {
   const { notes, viewport } = it.payload;
   const kinds = new Set(notes.map(n => n.kind));
-  let cut = false;
-  const noHint = [];
+  const cut = !full && notes.some(n => n.elements.some(e => (e.html?.length ?? 0) > HTML_LIMIT));
+  const noHint: string[] = [];
   const view = {
     request: { id: it.id, status: it.status, notes: notes.length, ...(viewport ? { viewport: `${viewport.w}x${viewport.h}` } : {}) },
     notes: notes.map((n, i) => ({
@@ -496,15 +528,17 @@ function requestView(it, port, full = false) {
       page: n.path,
       ...(n.frozen ? { frozen: 'captured with animations paused' } : {}),
       ...(n.kind === 'text' ? { selected: n.text } : {}),
-      ...(n.kind === 'area' ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {}),
+      ...(n.kind === 'area' && n.area ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {}),
       targets: n.elements.map((e, j) => {
-        const key = n.elements.length > 1 ? `${i + 1}${'abcdef'[j]}` : String(i + 1);
-        const h = e.hints || {};
-        const hints = Object.fromEntries(['svelte', 'rails', 'react', 'vue'].filter(k => h[k]?.length)
-          .map(k => [k, h[k].join(k === 'rails' ? ' > ' : k === 'svelte' ? ', ' : ' < ')]));
+        const key = n.elements.length > 1 ? `${i + 1}${'abcdef'.charAt(j)}` : String(i + 1);
+        const h = e.hints ?? {};
+        const hints = Object.fromEntries((['svelte', 'rails', 'react', 'vue'] as const).flatMap(k => {
+          const v = h[k];
+          return v?.length ? [[k, v.join(k === 'rails' ? ' > ' : k === 'svelte' ? ', ' : ' < ')]] : [];
+        }));
         if (!Object.keys(hints).length) noHint.push(key);
-        let html = e.html || '';
-        if (!full && html.length > HTML_LIMIT) { html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`; cut = true; }
+        let html = e.html ?? '';
+        if (!full && html.length > HTML_LIMIT) html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`;
         return {
           key, label: e.label,
           ...(Object.keys(hints).length ? { hints } : {}),
@@ -535,7 +569,7 @@ function requestView(it, port, full = false) {
   return { ...view, help };
 }
 
-async function cmdWait(args) {
+async function cmdWait(args: Args) {
   const st = loadState(args);
   const secs = Number(args.timeout ?? 540);
   if (!(secs > 0)) throw usageError('--timeout must be a number of seconds', 'wait');
@@ -544,7 +578,7 @@ async function cmdWait(args) {
     const left = Math.max(1000, Math.min(25000, deadline - Date.now()));
     const r = await api(st, `/next?timeout=${left}`);
     if (r.status === 200) {
-      const it = await r.json();
+      const it = await r.json() as Item;
       return args.json ? JSON.stringify(it, null, 2) : requestView(it, st.port);
     }
     if (r.status !== 204) throw new AxiError(`unexpected ${r.status} from the proxy: ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
@@ -552,27 +586,27 @@ async function cmdWait(args) {
   return { request: `none (waited ${secs}s)`, help: [listenHelp(st.port)] };
 }
 
-async function cmdShow(args) {
+async function cmdShow(args: Args) {
   const id = args._[0];
   if (!id) throw usageError('request id is required', 'show', [`Run \`${PE} show <id> [--full]\``]);
   const st = loadState(args);
   const r = await api(st, `/requests/${encodeURIComponent(id)}`);
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, 'NOT_FOUND', [`Run \`${PE} status --port ${st.port}\` to list requests`]);
-  return requestView(await r.json(), st.port, args.full === true);
+  return requestView(await r.json() as Item, st.port, args.full === true);
 }
 
-async function cmdDone(args) {
+async function cmdDone(args: Args) {
   const id = args._[0];
   if (!id) throw usageError('request id is required', 'done', [`Run \`${PE} done <id> "<one line per note>"\``]);
   const st = loadState(args);
-  const status = args.failed ? 'failed' : 'done';
+  const status: Status = args.failed ? 'failed' : 'done';
   let message = args._.slice(1).join(' ') || null;
   if (args.open && !args.failed) {
-    const [, file, line, column] = args.open.match(/^(.+?)(?::(\d+))?(?::(\d+))?$/);
+    const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
     const o = await api(st, '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file, line, column }) });
-    const b = await o.json().catch(() => ({}));
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error || o.status}`, 'OPEN_FAILED', [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`;
+    const b = await o.json().catch(() => ({})) as { file?: string; error?: string };
+    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, 'OPEN_FAILED', [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
+    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -583,10 +617,10 @@ async function cmdDone(args) {
   return { request: { id, status }, help: [listenHelp(st.port)] };
 }
 
-async function cmdStatus(args) {
+async function cmdStatus(args: Args) {
   const st = loadState(args);
-  const list = await (await api(st, '/requests')).json();
-  const by = s => list.filter(i => i.status === s).length;
+  const list = await (await api(st, '/requests')).json() as PublicItem[];
+  const by = (s: Status) => list.filter(i => i.status === s).length;
   return {
     proxy: { target: st.target, port: st.port, pid: st.pid },
     count: list.length ? `${list.length} request${list.length === 1 ? "" : "s"} (${by('pending')} pending, ${by('working')} working, ${by('done')} done, ${by('failed')} failed)` : '0 requests - the user has not sent anything yet',
@@ -595,7 +629,7 @@ async function cmdStatus(args) {
   };
 }
 
-function cmdStop(args) {
+function cmdStop(args: Args) {
   const port = args.port;
   const p = port ? statePath(port) : null;
   if ((p && !fs.existsSync(p)) || (!p && !runningProxies().length)) return { stop: `no proxy running${port ? ` on port ${port}` : ''} (no-op)` };
@@ -607,18 +641,18 @@ function cmdStop(args) {
 function runningProxies() {
   if (!fs.existsSync(STATE_DIR)) return [];
   return fs.readdirSync(STATE_DIR).filter(f => f.endsWith('.json'))
-    .map(f => { try { return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), 'utf8')); } catch { return null; } })
-    .filter(st => st && alive(st.pid));
+    .flatMap(f => { try { return [readState(path.join(STATE_DIR, f))]; } catch { return []; } })
+    .filter(st => alive(st.pid));
 }
 
 // Also the SessionStart hook output: keep it small and scoped to the current directory.
 async function home() {
   const here = process.cwd();
-  const mine = st => st.cwd && (here === st.cwd || here.startsWith(st.cwd + path.sep));
+  const mine = (st: ProxyState) => st.cwd !== undefined && (here === st.cwd || here.startsWith(st.cwd + path.sep));
   const sts = runningProxies(), local = sts.filter(mine), others = sts.length - local.length;
   const proxies = await Promise.all(local.map(async st => {
-    let pending = '?';
-    try { pending = (await (await api(st, '/requests', { signal: AbortSignal.timeout(1500) })).json()).filter(i => i.status === 'pending').length; } catch {}
+    let pending: number | '?' = '?';
+    try { pending = (await (await api(st, '/requests', { signal: AbortSignal.timeout(1500) })).json() as PublicItem[]).filter(i => i.status === 'pending').length; } catch {}
     return { port: st.port, target: st.target, pending };
   }));
   return {
@@ -631,18 +665,19 @@ async function home() {
 }
 
 // Opt-in only (AXI rule 7): the one command that writes agent config.
-async function cmdSetup(args) {
+function cmdSetup(args: Args) {
   if (args._[0] !== 'hooks' || args._.length > 1) throw usageError('unknown setup target', 'setup', [`Run \`${PE} setup hooks [--project] [--remove]\``]);
   // a hook runs at every session start, so it needs a path that npm will not clean up
   if (VIA_NPX && !args.remove) throw new AxiError('setup hooks needs an installed punchlist-axi (the npx cache path can disappear)', 'NOT_INSTALLED',
     ['Run `npm i -g punchlist-axi`, then `punchlist-axi setup hooks`']);
-  const scope = args.project ? 'project' : 'user';
+  const scope = args.project ? 'project' as const : 'user' as const;
   const identity = { marker: 'punchlist-axi', execPath: SCRIPT, scope };
-  const problems = [];
-  if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: m => problems.push(m) });
-  else await installSessionStartHooks({ ...identity, binaryNames: ['punchlist-axi'], shouldInstall: () => true, onError: m => problems.push(m) });
+  const problems: string[] = [];
+  const onError = (m: string) => { problems.push(m); };
+  if (args.remove) uninstallSessionStartHooks({ ...identity, onError });
+  else installSessionStartHooks({ ...identity, binaryNames: ['punchlist-axi'], shouldInstall: () => true, onError });
   const st = sessionStartHookStatus(identity);
-  const row = (agent, a) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), '~') });
+  const row = (agent: string, a: { installed: boolean; path: string }) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), '~') });
   return {
     setup: `${args.remove ? 'removed' : 'installed or already up to date'}: SessionStart hooks (${scope} scope)`,
     agents: [row('claude', st.claude), row('codex', st.codex), row('opencode', st.opencode)],
@@ -657,12 +692,12 @@ async function cmdSetup(args) {
 // How the agent should call us again: npx (cache path may be cleaned), a global install on PATH, or a checkout.
 const REAL_SCRIPT = (() => { try { return fs.realpathSync(SCRIPT); } catch { return SCRIPT; } })();
 const VIA_NPX = REAL_SCRIPT.split(path.sep).includes('_npx');
-const ON_PATH = !VIA_NPX && (process.env.PATH || '').split(path.delimiter).some(dir => {
-  try { return dir && fs.realpathSync(path.join(dir, 'punchlist-axi')) === REAL_SCRIPT; } catch { return false; }
+const ON_PATH = !VIA_NPX && (process.env['PATH'] ?? '').split(path.delimiter).some(dir => {
+  try { return dir !== '' && fs.realpathSync(path.join(dir, 'punchlist-axi')) === REAL_SCRIPT; } catch { return false; }
 });
 const PE = VIA_NPX ? 'npx -y punchlist-axi' : ON_PATH ? 'punchlist-axi' : `node ${SCRIPT}`;
 // A background wait wakes the agent when notes arrive, so the user never has to prompt "pick up the notes".
-const listenHelp = port => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
+const listenHelp = (port: number) => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
 const GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
 
@@ -680,7 +715,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 
-const HELP = {
+const HELP: Partial<Record<string, string>> = {
   start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
@@ -746,9 +781,9 @@ examples:
   ${PE} setup hooks --remove`,
 };
 
-const handler = fn => cmd => argv => fn(parseArgs(cmd, argv));
-const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup })
-  .map(([k, fn]) => [k, handler(fn)(k)]));
+const handlers: Record<Command, (args: Args) => ReturnType<AxiCliCommand<undefined>>> =
+  { start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup };
+const cmds = Object.fromEntries((Object.keys(handlers) as Command[]).map(k => [k, (argv: string[]) => handlers[k](parseArgs(k, argv))]));
 
 await runAxiCli({
   description: 'Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source',
@@ -756,5 +791,5 @@ await runAxiCli({
   topLevelHelp: GUIDE + '\n',
   home,
   commands: cmds,
-  getCommandHelp: c => HELP[c] ? HELP[c] + '\n' : null,
+  getCommandHelp: c => { const h = HELP[c]; return h ? h + '\n' : null; },
 });

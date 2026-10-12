@@ -935,17 +935,17 @@ var require_launch_editor = __commonJS({
     var constructWindowsLaunchCommand = require_construct_windows_launch_command();
     var parseFile = require_parse_file();
     function wrapErrorCallback(cb) {
-      return (fileName, errorMessage) => {
+      return (fileName, errorMessage2) => {
         console.log();
         console.log(colors.red("Could not open " + path2.basename(fileName) + " in the editor."));
-        if (errorMessage) {
-          if (errorMessage[errorMessage.length - 1] !== ".") {
-            errorMessage += ".";
+        if (errorMessage2) {
+          if (errorMessage2[errorMessage2.length - 1] !== ".") {
+            errorMessage2 += ".";
           }
-          console.log(colors.red("The editor process exited with an error: " + errorMessage));
+          console.log(colors.red("The editor process exited with an error: " + errorMessage2));
         }
         console.log();
-        if (cb) cb(fileName, errorMessage);
+        if (cb) cb(fileName, errorMessage2);
       };
     }
     function isTerminalEditor(editor) {
@@ -1019,7 +1019,7 @@ var require_launch_editor = __commonJS({
   }
 });
 
-// src/cli.mjs
+// src/cli.ts
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
@@ -2092,13 +2092,13 @@ async function runAxiCli(options) {
       return;
     }
   }
-  const handler2 = options.commands[command];
-  if (!handler2) {
+  const handler = options.commands[command];
+  if (!handler) {
     stdout.write((options.renderUnknownCommand ?? defaultUnknownCommand)(command));
     process.exitCode = 2;
     return;
   }
-  await runHandler(handler2, args, { command, args }, stdout, options, false);
+  await runHandler(handler, args, { command, args }, stdout, options, false);
 }
 function handleStdoutErrors(stdout) {
   const errorObservable = stdout;
@@ -2114,10 +2114,10 @@ function handleStdoutErrors(stdout) {
     throw error;
   });
 }
-async function runHandler(handler2, args, contextInput, stdout, options, isHomeView) {
+async function runHandler(handler, args, contextInput, stdout, options, isHomeView) {
   try {
     const context = await options.resolveContext?.(contextInput);
-    const output = await handler2(args, context);
+    const output = await handler(args, context);
     stdout.write(`${renderCommandOutput(output, options, isHomeView)}
 `);
   } catch (error) {
@@ -2797,16 +2797,16 @@ function uninstallSessionStartHooks(options = {}) {
   }
 }
 
-// src/cli.mjs
+// src/cli.ts
 var import_launch_editor = __toESM(require_launch_editor(), 1);
 
 // package.json
 var version = "0.1.0";
 
-// src/version.mjs
+// src/version.ts
 var VERSION = version;
 
-// src/cli.mjs
+// src/cli.ts
 var DIR = path.dirname(fileURLToPath(import.meta.url));
 var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
@@ -2823,16 +2823,17 @@ var FLAGS = {
   stop: { port: "v" },
   setup: { project: "b", remove: "b" }
 };
+var errorMessage = (e) => e instanceof Error ? e.message : String(e);
 function usageError(msg, cmd, extra = []) {
   const flags = Object.keys(FLAGS[cmd]).map((f) => `--${f}`).join(", ");
   return new AxiError(msg, "VALIDATION_ERROR", [...extra, `Valid flags for \`${cmd}\`: ${flags} (--help always allowed)`]);
 }
 function parseArgs(cmd, argv) {
-  const spec = FLAGS[cmd], args = { _: [] };
+  const spec = FLAGS[cmd], positional = [], flags = {};
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
+    const a = argv[i] ?? "";
     if (!a.startsWith("--")) {
-      args._.push(a);
+      positional.push(a);
       continue;
     }
     const eq = a.indexOf("=");
@@ -2841,20 +2842,19 @@ function parseArgs(cmd, argv) {
     if (!spec[k]) throw usageError(`unknown flag --${k} for \`${cmd}\``, cmd);
     if (spec[k] === "b") {
       if (v !== void 0) throw usageError(`--${k} takes no value`, cmd);
-      args[k] = true;
+      flags[k] = true;
       continue;
     }
     if (v === void 0) {
       v = argv[++i];
       if (v === void 0 || v.startsWith("--")) throw usageError(`--${k} needs a value`, cmd);
     }
-    args[k] = v;
+    flags[k] = v;
   }
-  return args;
+  return { ...flags, _: positional };
 }
 function normalizeTarget(t) {
   if (!t) throw usageError("--target is required (dev server port or URL)", "start", [`Run \`${PE} start --target 5173\` or \`--target http://localhost:3000\``]);
-  t = String(t);
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, "");
@@ -2862,16 +2862,19 @@ function normalizeTarget(t) {
 function statePath(port) {
   return path.join(STATE_DIR, `${port}.json`);
 }
+function readState(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
 function loadState(args) {
   if (args.port) {
     const p = statePath(args.port);
     if (!fs.existsSync(p)) throw notRunning(`no proxy running on port ${args.port}`, args.port);
-    return JSON.parse(fs.readFileSync(p, "utf8"));
+    return readState(p);
   }
   const files = fs.existsSync(STATE_DIR) ? fs.readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")) : [];
-  if (!files.length) throw notRunning("no proxy running");
   files.sort((a, b) => fs.statSync(path.join(STATE_DIR, b)).mtimeMs - fs.statSync(path.join(STATE_DIR, a)).mtimeMs);
-  return JSON.parse(fs.readFileSync(path.join(STATE_DIR, files[0]), "utf8"));
+  if (!files[0]) throw notRunning("no proxy running");
+  return readState(path.join(STATE_DIR, files[0]));
 }
 function notRunning(msg, port) {
   return new AxiError(msg, "NOT_RUNNING", [`Run \`${PE} start --target <port|url>${port ? ` --port ${port}` : ""}\``]);
@@ -2898,7 +2901,9 @@ function readBody(req, limit = 2e6) {
         req.destroy();
       } else chunks.push(c);
     });
-    req.on("end", () => resolve2(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => {
+      resolve2(Buffer.concat(chunks).toString("utf8"));
+    });
     req.on("error", reject);
   });
 }
@@ -2907,7 +2912,7 @@ function json(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 function getCookie(header, name) {
-  for (const part of (header || "").split(";")) {
+  for (const part of (header ?? "").split(";")) {
     const [k, ...v] = part.trim().split("=");
     if (k === name) return v.join("=");
   }
@@ -2920,8 +2925,8 @@ function stripCookie(header, name) {
 }
 function tailscaleName() {
   try {
-    const out = execFileSync("tailscale", ["status", "--json"], { stdio: ["ignore", "pipe", "ignore"], timeout: 3e3 });
-    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, "") || null;
+    const out = execFileSync("tailscale", ["status", "--json"], { stdio: ["ignore", "pipe", "ignore"], timeout: 3e3, encoding: "utf8" });
+    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, "") ?? null;
   } catch {
     return null;
   }
@@ -2935,7 +2940,7 @@ function alive(pid) {
   }
 }
 function printInfo(st) {
-  const authPath = st.auth === false ? "/" : `${PREFIX}/auth?token=${st.token}`;
+  const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
   const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`);
@@ -2946,7 +2951,7 @@ function printInfo(st) {
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 function links(st) {
-  const authPath = st.auth === false ? "/" : `${PREFIX}/auth?token=${st.token}`;
+  const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
   const ts = tailscaleName();
   return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...ts ? { tailscale: `https://${ts}${authPath}` } : {} };
 }
@@ -2963,12 +2968,16 @@ function startOutput(st, state) {
     ]
   };
 }
-var BASE_PORT = () => Number(process.env.PUNCHLIST_PORT || 4e3);
+var BASE_PORT = () => Number(process.env["PUNCHLIST_PORT"] || 4e3);
 var PORT_TRIES = 20;
 function portFree(port, host) {
   return new Promise((resolve2) => {
-    const srv = net.createServer().once("error", () => resolve2(false));
-    srv.listen(port, host, () => srv.close(() => resolve2(true)));
+    const srv = net.createServer().once("error", () => {
+      resolve2(false);
+    });
+    srv.listen(port, host, () => srv.close(() => {
+      resolve2(true);
+    }));
   });
 }
 async function cmdStart(args) {
@@ -2983,7 +2992,7 @@ async function cmdStart(args) {
     while (port < base + PORT_TRIES - 1 && (held.has(port) || !await portFree(port, args.host ?? "127.0.0.1"))) port++;
   }
   const p = statePath(port);
-  const old = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+  const old = fs.existsSync(p) ? readState(p) : null;
   if (old && alive(old.pid)) {
     if (old.target !== target) throw new AxiError(`port ${port} already proxies ${old.target}`, "PORT_BUSY", [`Run \`${PE} stop --port ${port}\` first, or pick another --port`]);
     return startOutput(old, "already running");
@@ -2995,16 +3004,16 @@ async function cmdStart(args) {
   const child = spawn2(process.execPath, [SCRIPT, "serve", ...process.argv.slice(3)], { detached: true, stdio: ["ignore", fd, fd], env: { ...process.env, PUNCHLIST_PORT: String(port) } });
   child.unref();
   fs.closeSync(fd);
-  let exited = false;
+  const exit = { seen: false };
   child.on("exit", () => {
-    exited = true;
+    exit.seen = true;
   });
-  for (let i = 0; i < 100 && !exited; i++) {
+  for (let i = 0; i < 100 && !exit.seen; i++) {
     await new Promise((r) => setTimeout(r, 100));
     const st = runningProxies().find((s) => s.pid === child.pid);
     if (st) return startOutput(st, st.port === base || !auto ? "started" : `started (${st.port - base > 1 ? `ports ${base}-${st.port - 1} are` : `port ${base} is`} busy)`);
   }
-  if (!exited) child.kill();
+  if (!exit.seen) child.kill();
   const log = fs.readFileSync(logFile, "utf8").trim().slice(-1e3);
   throw new AxiError(`proxy did not start: ${log || "no output"}`, "START_FAILED", [`Full log: ${logFile}`]);
 }
@@ -3015,8 +3024,8 @@ function cmdServe(args) {
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? "127.0.0.1";
   const noAuth = args["no-auth"] === true;
-  const token = String(args.token ?? crypto.randomBytes(12).toString("base64url"));
-  const targetPort = target.port || (target.protocol === "https:" ? 443 : 80);
+  const token = args.token ?? crypto.randomBytes(12).toString("base64url");
+  const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   const lib = target.protocol === "https:" ? https : http;
   const selfOrigins = [target.origin];
   if (["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)) {
@@ -3029,7 +3038,7 @@ function cmdServe(args) {
   let seq = 0;
   const summarize = (p) => {
     const n = p.notes.length;
-    return { label: n === 1 ? p.notes[0].comment.slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
+    return { label: n === 1 ? (p.notes[0]?.comment ?? "").slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
   };
   const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload) });
   const broadcast = (obj) => {
@@ -3064,12 +3073,11 @@ function cmdServe(args) {
       } catch {
       }
     }
-    for (const k of Object.keys(h)) if (k.startsWith("x-forwarded-") || k === "forwarded" || k === "x-pe-token") delete h[k];
     delete h["accept-encoding"];
     const c = stripCookie(h.cookie, COOKIE);
     if (c) h.cookie = c;
     else delete h.cookie;
-    return h;
+    return Object.fromEntries(Object.entries(h).filter(([k]) => !k.startsWith("x-forwarded-") && k !== "forwarded" && k !== "x-pe-token"));
   }
   function rewriteLocation(loc) {
     for (const o of origins) if (loc === o || loc.startsWith(o + "/") || loc.startsWith(o + "?")) return loc.slice(o.length) || "/";
@@ -3091,19 +3099,20 @@ function cmdServe(args) {
       headers: upstreamHeaders(req),
       rejectUnauthorized: false
     }, (upRes) => {
+      const status = upRes.statusCode ?? 502;
       const h = { ...upRes.headers };
       delete h["content-security-policy"];
       delete h["content-security-policy-report-only"];
       if (h.location) h.location = rewriteLocation(h.location);
       if (h["set-cookie"]) h["set-cookie"] = h["set-cookie"].map((c) => c.replace(/;\s*domain=[^;]*/i, ""));
-      const isHtml = /text\/html/i.test(h["content-type"] || "");
-      if (!isHtml || req.method === "HEAD" || upRes.statusCode === 204 || upRes.statusCode === 304) {
-        res.writeHead(upRes.statusCode, h);
+      const isHtml = /text\/html/i.test(h["content-type"] ?? "");
+      if (!isHtml || req.method === "HEAD" || status === 204 || status === 304) {
+        res.writeHead(status, h);
         upRes.pipe(res);
         return;
       }
       let stream = upRes;
-      const enc = String(h["content-encoding"] || "").toLowerCase();
+      const enc = (h["content-encoding"] ?? "").toLowerCase();
       if (enc === "gzip") stream = upRes.pipe(zlib.createGunzip());
       else if (enc === "br") stream = upRes.pipe(zlib.createBrotliDecompress());
       else if (enc === "deflate") stream = upRes.pipe(zlib.createInflate());
@@ -3118,68 +3127,87 @@ function cmdServe(args) {
         delete h["content-encoding"];
         delete h["transfer-encoding"];
         h["content-length"] = String(body.length);
-        res.writeHead(upRes.statusCode, h);
+        res.writeHead(status, h);
         res.end(body);
       });
     });
     upReq.on("error", (e) => {
       if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-      res.end(`punchlist: cannot reach ${target.origin} (${e.code || e.message}). Is the dev server running?`);
+      res.end(`punchlist: cannot reach ${target.origin} (${e.code ?? e.message}). Is the dev server running?`);
     });
     req.pipe(upReq);
   }
-  async function api2(req, res, url) {
+  async function handleApi(req, res, url) {
     const p = url.pathname.slice(PREFIX.length);
     if (p === "/client.js") {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
-      return res.end(fs.readFileSync(path.join(DIR, "client.js"), "utf8"));
+      res.end(fs.readFileSync(path.join(DIR, "client.js"), "utf8"));
+      return;
     }
     if (p === "/requests" && req.method === "POST") {
       let payload;
       try {
         payload = JSON.parse(await readBody(req));
       } catch (e) {
-        return json(res, 400, { error: e.message });
+        json(res, 400, { error: errorMessage(e) });
+        return;
       }
-      if (!Array.isArray(payload.notes) || !payload.notes.length || payload.notes.some((n) => !n.comment?.trim() || !n.elements?.length))
-        return json(res, 400, { error: "expected { notes: [{ comment, elements: [...] }] }" });
+      if (!isPayload(payload)) {
+        json(res, 400, { error: "expected { notes: [{ comment, elements: [...] }] }" });
+        return;
+      }
       const it = { id: `r${++seq}`, status: "pending", createdAt: (/* @__PURE__ */ new Date()).toISOString(), payload, message: null };
       items.push(it);
       log(`received ${it.id}: ${summarize(payload).prompt.slice(0, 100)}`);
       broadcast({ type: "update", item: publicItem(it) });
       dispatch();
-      return json(res, 201, publicItem(it));
+      json(res, 201, publicItem(it));
+      return;
     }
-    if (p === "/requests" && req.method === "GET") return json(res, 200, items.map(publicItem));
-    let m;
-    if ((m = p.match(/^\/requests\/([\w-]+)$/)) && req.method === "GET") {
-      const it = items.find((i) => i.id === m[1]);
-      return it ? json(res, 200, it) : json(res, 404, { error: "unknown id" });
+    if (p === "/requests" && req.method === "GET") {
+      json(res, 200, items.map(publicItem));
+      return;
     }
-    if ((m = p.match(/^\/requests\/([\w-]+)\/done$/)) && req.method === "POST") {
-      const it = items.find((i) => i.id === m[1]);
-      if (!it) return json(res, 404, { error: "unknown id" });
+    const one = /^\/requests\/([\w-]+)$/.exec(p)?.[1], done = /^\/requests\/([\w-]+)\/done$/.exec(p)?.[1];
+    if (one && req.method === "GET") {
+      const it = items.find((i) => i.id === one);
+      if (it) json(res, 200, it);
+      else json(res, 404, { error: "unknown id" });
+      return;
+    }
+    if (done && req.method === "POST") {
+      const it = items.find((i) => i.id === done);
+      if (!it) {
+        json(res, 404, { error: "unknown id" });
+        return;
+      }
       let body = {};
       try {
         body = JSON.parse(await readBody(req) || "{}");
       } catch {
       }
       it.status = body.status === "failed" ? "failed" : "done";
-      it.message = body.message || null;
+      it.message = typeof body.message === "string" && body.message ? body.message : null;
       log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ""}`);
       broadcast({ type: "update", item: publicItem(it) });
-      return json(res, 200, publicItem(it));
+      json(res, 200, publicItem(it));
+      return;
     }
     if (p === "/open" && req.method === "POST") {
       let body;
       try {
         body = JSON.parse(await readBody(req));
       } catch (e) {
-        return json(res, 400, { error: e.message });
+        json(res, 400, { error: errorMessage(e) });
+        return;
       }
-      if (typeof body.file !== "string" || !body.file) return json(res, 400, { error: "expected { file, line?, column? }" });
+      if (typeof body.file !== "string" || !body.file) {
+        json(res, 400, { error: "expected { file, line?, column? }" });
+        return;
+      }
       const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
-      return json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      return;
     }
     if (p === "/next" && req.method === "GET") {
       const timeout = Math.min(Number(url.searchParams.get("timeout")) || 25e3, 6e4);
@@ -3194,7 +3222,8 @@ function cmdServe(args) {
         waiters.delete(w);
       });
       waiters.add(w);
-      return dispatch();
+      dispatch();
+      return;
     }
     if (p === "/events") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
@@ -3212,36 +3241,47 @@ function cmdServe(args) {
     json(res, 404, { error: "not found" });
   }
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, "http://x");
+    const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get("next");
-      const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      const dest = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
       if (noAuth || url.searchParams.get("token") === token) {
         res.writeHead(302, { "set-cookie": `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`, location: dest });
       } else res.writeHead(403, { "content-type": "text/plain" });
-      return res.end(res.statusCode === 403 ? "punchlist: bad token" : "");
+      res.end(res.statusCode === 403 ? "punchlist: bad token" : "");
+      return;
     }
     if (!authed(req)) {
       res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
-      return res.end("punchlist: open the link printed by `punchlist start` (it carries the access token).");
+      res.end("punchlist: open the link printed by `punchlist start` (it carries the access token).");
+      return;
     }
-    if (url.pathname.startsWith(PREFIX + "/")) return api2(req, res, url).catch((e) => json(res, 500, { error: e.message }));
+    if (url.pathname.startsWith(PREFIX + "/")) {
+      handleApi(req, res, url).catch((e) => {
+        json(res, 500, { error: errorMessage(e) });
+      });
+      return;
+    }
     proxy(req, res);
   });
   server.on("upgrade", (req, socket, head) => {
-    if (!authed(req)) return socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    if (!authed(req)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      return;
+    }
     const opts = { host: target.hostname.replace(/^\[|\]$/g, ""), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
-    const up = (target.protocol === "https:" ? tls : net).connect(opts, () => {
-      let raw = `${req.method} ${req.url} HTTP/1.1\r
+    const up = target.protocol === "https:" ? tls.connect(opts, onConnect) : net.connect(opts, onConnect);
+    function onConnect() {
+      let raw = `${req.method ?? "GET"} ${req.url ?? "/"} HTTP/1.1\r
 `;
       const h = upstreamHeaders(req);
-      for (const [k, v] of Object.entries(h)) for (const vv of [].concat(v)) raw += `${k}: ${vv}\r
+      for (const [k, v] of Object.entries(h)) for (const vv of [v ?? []].flat()) raw += `${k}: ${vv}\r
 `;
       up.write(raw + "\r\n");
-      if (head?.length) up.write(head);
+      if (head.length) up.write(head);
       up.pipe(socket);
       socket.pipe(up);
-    });
+    }
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
   });
@@ -3257,11 +3297,9 @@ function cmdServe(args) {
       return { status: 404, error: `${file} not found in ${root}` };
     }
     if (!inside(fs.realpathSync(root), real)) return { status: 403, error: "file is outside the project" };
-    let failed = null;
-    (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (f, msg) => {
-      failed = msg || "no editor found (set LAUNCH_EDITOR or EDITOR)";
-    });
-    if (failed) return { status: 500, error: failed };
+    const failures = [];
+    (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
+    if (failures[0]) return { status: 500, error: failures[0] };
     const rel = path.relative(root, abs);
     log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
     return { status: 200, file: rel };
@@ -3278,7 +3316,8 @@ function cmdServe(args) {
   server.on("error", (e) => {
     if (e.code === "EADDRINUSE" && auto && port < lastPort) {
       log(`port ${port} is in use, trying ${port + 1}`);
-      return server.listen(++port, host);
+      server.listen(++port, host);
+      return;
     }
     console.error(e.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : e.message);
     process.exit(1);
@@ -3292,14 +3331,20 @@ function cmdServe(args) {
   };
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
-  return new Promise(() => {
+  return new Promise(() => void 0);
+}
+function isPayload(x) {
+  const notes = x?.notes;
+  return Array.isArray(notes) && notes.length > 0 && notes.every((n) => {
+    const { comment, elements } = n ?? {};
+    return typeof comment === "string" && comment.trim() !== "" && Array.isArray(elements) && elements.length > 0;
   });
 }
 var HTML_LIMIT = 600;
 function requestView(it, port, full = false) {
   const { notes, viewport } = it.payload;
   const kinds = new Set(notes.map((n) => n.kind));
-  let cut = false;
+  const cut = !full && notes.some((n) => n.elements.some((e) => (e.html?.length ?? 0) > HTML_LIMIT));
   const noHint = [];
   const view = {
     request: { id: it.id, status: it.status, notes: notes.length, ...viewport ? { viewport: `${viewport.w}x${viewport.h}` } : {} },
@@ -3310,17 +3355,17 @@ function requestView(it, port, full = false) {
       page: n.path,
       ...n.frozen ? { frozen: "captured with animations paused" } : {},
       ...n.kind === "text" ? { selected: n.text } : {},
-      ...n.kind === "area" ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {},
+      ...n.kind === "area" && n.area ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {},
       targets: n.elements.map((e, j) => {
-        const key = n.elements.length > 1 ? `${i + 1}${"abcdef"[j]}` : String(i + 1);
-        const h = e.hints || {};
-        const hints = Object.fromEntries(["svelte", "rails", "react", "vue"].filter((k) => h[k]?.length).map((k) => [k, h[k].join(k === "rails" ? " > " : k === "svelte" ? ", " : " < ")]));
+        const key = n.elements.length > 1 ? `${i + 1}${"abcdef".charAt(j)}` : String(i + 1);
+        const h = e.hints ?? {};
+        const hints = Object.fromEntries(["svelte", "rails", "react", "vue"].flatMap((k) => {
+          const v = h[k];
+          return v?.length ? [[k, v.join(k === "rails" ? " > " : k === "svelte" ? ", " : " < ")]] : [];
+        }));
         if (!Object.keys(hints).length) noHint.push(key);
-        let html = e.html || "";
-        if (!full && html.length > HTML_LIMIT) {
-          html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`;
-          cut = true;
-        }
+        let html = e.html ?? "";
+        if (!full && html.length > HTML_LIMIT) html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`;
         return {
           key,
           label: e.label,
@@ -3382,11 +3427,11 @@ async function cmdDone(args) {
   const status = args.failed ? "failed" : "done";
   let message = args._.slice(1).join(" ") || null;
   if (args.open && !args.failed) {
-    const [, file, line, column] = args.open.match(/^(.+?)(?::(\d+))?(?::(\d+))?$/);
+    const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
     const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column }) });
     const b = await o.json().catch(() => ({}));
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error || o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
+    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
+    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: "POST",
@@ -3422,17 +3467,17 @@ function cmdStop(args) {
 }
 function runningProxies() {
   if (!fs.existsSync(STATE_DIR)) return [];
-  return fs.readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")).map((f) => {
+  return fs.readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")).flatMap((f) => {
     try {
-      return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf8"));
+      return [readState(path.join(STATE_DIR, f))];
     } catch {
-      return null;
+      return [];
     }
-  }).filter((st) => st && alive(st.pid));
+  }).filter((st) => alive(st.pid));
 }
 async function home() {
   const here = process.cwd();
-  const mine = (st) => st.cwd && (here === st.cwd || here.startsWith(st.cwd + path.sep));
+  const mine = (st) => st.cwd !== void 0 && (here === st.cwd || here.startsWith(st.cwd + path.sep));
   const sts = runningProxies(), local = sts.filter(mine), others = sts.length - local.length;
   const proxies = await Promise.all(local.map(async (st) => {
     let pending = "?";
@@ -3448,7 +3493,7 @@ async function home() {
     help: proxies.length ? [`Run \`${PE} wait --port <port>\` to receive notes`, `Run \`${PE} status --port <port>\` to list requests`, `Run \`${PE} --help\` for commands and the loop`] : [`Run \`${PE} start --target <port|url>\` to proxy a dev server`, `Run \`${PE} --help\` for commands and the loop`]
   };
 }
-async function cmdSetup(args) {
+function cmdSetup(args) {
   if (args._[0] !== "hooks" || args._.length > 1) throw usageError("unknown setup target", "setup", [`Run \`${PE} setup hooks [--project] [--remove]\``]);
   if (VIA_NPX && !args.remove) throw new AxiError(
     "setup hooks needs an installed punchlist-axi (the npx cache path can disappear)",
@@ -3458,8 +3503,11 @@ async function cmdSetup(args) {
   const scope = args.project ? "project" : "user";
   const identity = { marker: "punchlist-axi", execPath: SCRIPT, scope };
   const problems = [];
-  if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: (m) => problems.push(m) });
-  else await installSessionStartHooks({ ...identity, binaryNames: ["punchlist-axi"], shouldInstall: () => true, onError: (m) => problems.push(m) });
+  const onError = (m) => {
+    problems.push(m);
+  };
+  if (args.remove) uninstallSessionStartHooks({ ...identity, onError });
+  else installSessionStartHooks({ ...identity, binaryNames: ["punchlist-axi"], shouldInstall: () => true, onError });
   const st = sessionStartHookStatus(identity);
   const row = (agent, a) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), "~") });
   return {
@@ -3477,9 +3525,9 @@ var REAL_SCRIPT = (() => {
   }
 })();
 var VIA_NPX = REAL_SCRIPT.split(path.sep).includes("_npx");
-var ON_PATH = !VIA_NPX && (process.env.PATH || "").split(path.delimiter).some((dir) => {
+var ON_PATH = !VIA_NPX && (process.env["PATH"] ?? "").split(path.delimiter).some((dir) => {
   try {
-    return dir && fs.realpathSync(path.join(dir, "punchlist-axi")) === REAL_SCRIPT;
+    return dir !== "" && fs.realpathSync(path.join(dir, "punchlist-axi")) === REAL_SCRIPT;
   } catch {
     return false;
   }
@@ -3567,13 +3615,16 @@ examples:
   ${PE} setup hooks
   ${PE} setup hooks --remove`
 };
-var handler = (fn) => (cmd) => (argv) => fn(parseArgs(cmd, argv));
-var cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup }).map(([k, fn]) => [k, handler(fn)(k)]));
+var handlers = { start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup };
+var cmds = Object.fromEntries(Object.keys(handlers).map((k) => [k, (argv) => handlers[k](parseArgs(k, argv))]));
 await runAxiCli({
   description: "Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source",
   version: VERSION,
   topLevelHelp: GUIDE + "\n",
   home,
   commands: cmds,
-  getCommandHelp: (c) => HELP[c] ? HELP[c] + "\n" : null
+  getCommandHelp: (c) => {
+    const h = HELP[c];
+    return h ? h + "\n" : null;
+  }
 });
