@@ -2801,7 +2801,7 @@ function uninstallSessionStartHooks(options = {}) {
 var import_launch_editor = __toESM(require_launch_editor(), 1);
 
 // package.json
-var version = "0.1.0";
+var version = "0.1.1";
 
 // src/version.ts
 var VERSION = version;

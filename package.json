@@ -1,6 +1,6 @@
 {
   "name": "punchlist-axi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Click-to-edit for any running web app: a proxy injects a picker, your coding agent pulls the batch of notes and edits the source.",
   "license": "MIT",
