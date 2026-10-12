@@ -7,8 +7,8 @@ export interface Target { kind: NoteKind; els: Element[]; text?: string; area?: 
 export interface Draft extends Target { desc: string; hint: string; file: FileRef | null; top: boolean }
 // A saved note keeps its live elements (null when gone) to draw its marks.
 export type LiveNote = Note & { els: (Element | null)[] };
-// A status message; `reload` adds the Reload button and the auto-reload switch, `file` the Open / Copy buttons.
-export interface Toast { id: number; text: string; reload: boolean; file?: FileRef | undefined }
+// A status message; `reload` adds the Reload button ('agent', a finished request: also the auto-reload switch), `file` the Open / Copy buttons.
+export interface Toast { id: number; text: string; reload: false | 'agent' | 'button'; file?: FileRef | undefined }
 // A rectangle in viewport coordinates.
 export interface Box { left: number; top: number; width: number; height: number }
 

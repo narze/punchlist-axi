@@ -18,4 +18,7 @@ await Promise.all([
   build({ bundle: true, minify: true, platform: 'browser', format: 'iife', target: 'es2020', entryPoints: ['src/client/index.ts'], outfile: 'scripts/client.js',
     mainFields: ['svelte', 'browser', 'module', 'main'], conditions: ['svelte', 'browser', 'production'],
     plugins: [svelte({ compilerOptions: { css: 'injected', discloseVersion: false } })], banner: { js: banner } }),
+  // the in-browser editor (CodeMirror): an ES module the picker imports on first use, so it costs nothing until then
+  build({ bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'es2020', entryPoints: ['src/client/editor.ts'], outfile: 'scripts/editor.js',
+    banner: { js: banner } }),
 ]);

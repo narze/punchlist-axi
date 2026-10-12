@@ -33,8 +33,13 @@ export interface Note<E = ElementContext> {
   elements: E[];
 }
 
+// The in-browser editor: GET /file?path= answers SourceFile, POST /file takes SourceFile and answers it with the new etag.
+// A save whose etag no longer matches the file on disk gets 409 with the current etag.
+export interface SourceFile { file: string; content: string; etag: string }
+
 export interface Payload<E = ElementContext> {
   kind?: 'locate';  // the user asked the agent to find the file; no notes to apply
+  edit?: boolean;   // locate for the in-browser editor: the agent must name a file the page may edit
   notes: Note<E>[];
   viewport?: { w: number; h: number };
 }
