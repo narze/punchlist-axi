@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { startFixture } from './fixture-server.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.join(here, '../scripts/punchlist.mjs');
+const CLI = path.join(here, '../scripts/punchlist-axi.mjs');
 const TPORT = 39000 + Math.floor(Math.random() * 500), PPORT = TPORT + 500;
 const fixture = await startFixture(TPORT);
 const sleep = ms => new Promise(r => setTimeout(r, ms));

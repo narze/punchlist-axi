@@ -14,13 +14,13 @@ punchlist runs a proxy in the background in front of the user's dev server. The 
 Do not follow workflow details from memory or from this file. Read the source of truth first:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/scripts/punchlist.mjs" --help
+node "${CLAUDE_SKILL_DIR}/scripts/punchlist-axi.mjs" --help
 ```
 
 Then start the proxy. It returns at once and prints the link for the user and the next command to run:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/scripts/punchlist.mjs" start --target <port|url>
+node "${CLAUDE_SKILL_DIR}/scripts/punchlist-axi.mjs" start --target <port|url>
 ```
 
 Do not wrap `start` in `nohup` or `&`; it already runs the proxy in the background.

@@ -1,6 +1,6 @@
 // punchlist — proxy any local web app, inject an element picker, and queue
 // "change this element" requests for whatever coding agent is running the loop.
-// Source; `pnpm build` bundles it into scripts/punchlist.mjs, which needs only Node >= 18 or Bun.
+// Source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
 //   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
@@ -24,7 +24,7 @@ import { runAxiCli, AxiError, installSessionStartHooks, uninstallSessionStartHoo
 import { VERSION } from './version.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const SCRIPT = path.join(DIR, 'punchlist.mjs'); // the entry point; this file is punchlist-cli.mjs once built
+const SCRIPT = path.join(DIR, 'punchlist-axi.mjs'); // the entry point; this file is punchlist-cli.mjs once built
 const STATE_DIR = path.join(os.tmpdir(), 'punchlist');
 const PREFIX = '/__pe';
 const COOKIE = '__pe_auth';
@@ -569,7 +569,7 @@ async function home() {
 async function cmdSetup(args) {
   if (args._[0] !== 'hooks' || args._.length > 1) throw usageError('unknown setup target', 'setup', [`Run \`${PE} setup hooks [--project] [--remove]\``]);
   const scope = args.project ? 'project' : 'user';
-  const identity = { marker: 'punchlist', execPath: SCRIPT, scope };
+  const identity = { marker: 'punchlist-axi', execPath: SCRIPT, scope };
   const problems = [];
   if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: m => problems.push(m) });
   else await installSessionStartHooks({ ...identity, binaryNames: ['punchlist-axi'], shouldInstall: () => true, onError: m => problems.push(m) });
@@ -579,7 +579,7 @@ async function cmdSetup(args) {
     setup: `${args.remove ? 'removed' : 'installed or already up to date'}: SessionStart hooks (${scope} scope)`,
     agents: [row('claude', st.claude), row('codex', st.codex), row('opencode', st.opencode)],
     ...(problems.length ? { warnings: problems } : {}),
-    help: args.remove ? [`Run \`${PE} setup hooks\` to install them again`]
+    help: args.remove ? [`Run \`${PE} setup hooks${args.project ? ' --project' : ''}\` to install them again`]
       : ['Each new agent session now starts with the proxies running for its directory', `Run \`${PE} setup hooks --remove${args.project ? ' --project' : ''}\` to undo`],
   };
 }

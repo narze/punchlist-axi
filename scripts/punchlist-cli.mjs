@@ -1787,7 +1787,7 @@ var VERSION = version;
 
 // src/cli.mjs
 var DIR = path.dirname(fileURLToPath(import.meta.url));
-var SCRIPT = path.join(DIR, "punchlist.mjs");
+var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
@@ -2363,7 +2363,7 @@ async function home() {
 async function cmdSetup(args) {
   if (args._[0] !== "hooks" || args._.length > 1) throw usageError("unknown setup target", "setup", [`Run \`${PE} setup hooks [--project] [--remove]\``]);
   const scope = args.project ? "project" : "user";
-  const identity = { marker: "punchlist", execPath: SCRIPT, scope };
+  const identity = { marker: "punchlist-axi", execPath: SCRIPT, scope };
   const problems = [];
   if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: (m) => problems.push(m) });
   else await installSessionStartHooks({ ...identity, binaryNames: ["punchlist-axi"], shouldInstall: () => true, onError: (m) => problems.push(m) });
@@ -2373,7 +2373,7 @@ async function cmdSetup(args) {
     setup: `${args.remove ? "removed" : "installed or already up to date"}: SessionStart hooks (${scope} scope)`,
     agents: [row("claude", st.claude), row("codex", st.codex), row("opencode", st.opencode)],
     ...problems.length ? { warnings: problems } : {},
-    help: args.remove ? [`Run \`${PE} setup hooks\` to install them again`] : ["Each new agent session now starts with the proxies running for its directory", `Run \`${PE} setup hooks --remove${args.project ? " --project" : ""}\` to undo`]
+    help: args.remove ? [`Run \`${PE} setup hooks${args.project ? " --project" : ""}\` to install them again`] : ["Each new agent session now starts with the proxies running for its directory", `Run \`${PE} setup hooks --remove${args.project ? " --project" : ""}\` to undo`]
   };
 }
 var PE = `node ${SCRIPT}`;
