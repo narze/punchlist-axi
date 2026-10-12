@@ -110,4 +110,35 @@ t('setup hooks installs a working SessionStart hook, idempotently, and --remove 
   assert.equal(removed.status, 0); assert.equal(hooks().length, 0);
   assert.deepEqual(all().map(h => h.command), [mine.command], 'an unrelated user hook survives install and --remove');
 });
+// Copies the built scripts into a package layout, the way npm lays them out.
+const installAt = dir => {
+  const pkg = path.join(dir, 'punchlist-axi');
+  fs.mkdirSync(pkg, { recursive: true });
+  fs.cpSync(path.dirname(CLI), path.join(pkg, 'scripts'), { recursive: true });
+  return path.join(pkg, 'scripts/punchlist-axi.mjs');
+};
+t('from a git checkout, next steps name the script path', () => {
+  const env = { ...process.env, PATH: path.dirname(process.execPath) }; // not your PATH: it may link punchlist-axi to this checkout
+  const r = spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8', env, timeout: 15000 });
+  assert.ok(r.stdout.includes(`Run \`node ${CLI} <command> --help\``), r.stdout);
+});
+t('under npx, next steps say npx -y punchlist-axi, and setup hooks refuses a cache path', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-npx-'));
+  const bin = installAt(path.join(tmp, '_npx/0123abcd/node_modules'));
+  const env = { ...process.env, HOME: tmp };
+  const go = (...a) => spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8', env, timeout: 15000 });
+  assert.match(go('--help').stdout, /Run `npx -y punchlist-axi <command> --help`/);
+  assert.match(go('stop', '--port', FREE).stdout, /no-op/, 'commands still run');
+  const r = go('setup', 'hooks');
+  assert.equal(r.status, 1); assert.match(r.stdout, /npm i(nstall)? -g punchlist-axi/, 'says how to get a stable path');
+  assert.equal(fs.existsSync(path.join(tmp, '.claude/settings.json')), false, 'writes no hook');
+});
+t('when installed globally, next steps say punchlist-axi', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-global-'));
+  const bin = installAt(path.join(tmp, 'lib/node_modules'));
+  fs.mkdirSync(path.join(tmp, 'bin')); fs.symlinkSync(bin, path.join(tmp, 'bin/punchlist-axi'));
+  const env = { ...process.env, PATH: `${path.join(tmp, 'bin')}${path.delimiter}${process.env.PATH}` };
+  const r = spawnSync(process.execPath, [bin, '--help'], { encoding: 'utf8', env, timeout: 15000 });
+  assert.match(r.stdout, /Run `punchlist-axi <command> --help`/);
+});
 console.log(`\n${ok} passed`);

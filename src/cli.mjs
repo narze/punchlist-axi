@@ -156,7 +156,7 @@ function printInfo(st) {
     console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
     console.log(`             https://${ts}${authPath}`);
   }
-  console.log(`  Agent:     node ${SCRIPT} wait --port ${st.port}`);
+  console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 
 function links(st) {
@@ -607,6 +607,9 @@ async function home() {
 // Opt-in only (AXI rule 7): the one command that writes agent config.
 async function cmdSetup(args) {
   if (args._[0] !== 'hooks' || args._.length > 1) throw usageError('unknown setup target', 'setup', [`Run \`${PE} setup hooks [--project] [--remove]\``]);
+  // a hook runs at every session start, so it needs a path that npm will not clean up
+  if (VIA_NPX && !args.remove) throw new AxiError('setup hooks needs an installed punchlist-axi (the npx cache path can disappear)', 'NOT_INSTALLED',
+    ['Run `npm i -g punchlist-axi`, then `punchlist-axi setup hooks`']);
   const scope = args.project ? 'project' : 'user';
   const identity = { marker: 'punchlist-axi', execPath: SCRIPT, scope };
   const problems = [];
@@ -625,7 +628,13 @@ async function cmdSetup(args) {
 
 // ---------------------------------------------------------------- main
 
-const PE = `node ${SCRIPT}`;
+// How the agent should call us again: npx (cache path may be cleaned), a global install on PATH, or a checkout.
+const REAL_SCRIPT = (() => { try { return fs.realpathSync(SCRIPT); } catch { return SCRIPT; } })();
+const VIA_NPX = REAL_SCRIPT.split(path.sep).includes('_npx');
+const ON_PATH = !VIA_NPX && (process.env.PATH || '').split(path.delimiter).some(dir => {
+  try { return dir && fs.realpathSync(path.join(dir, 'punchlist-axi')) === REAL_SCRIPT; } catch { return false; }
+});
+const PE = VIA_NPX ? 'npx -y punchlist-axi' : ON_PATH ? 'punchlist-axi' : `node ${SCRIPT}`;
 // A background wait wakes the agent when notes arrive, so the user never has to prompt "pick up the notes".
 const listenHelp = port => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
 const GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
