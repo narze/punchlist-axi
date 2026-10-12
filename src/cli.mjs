@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runAxiCli, AxiError, installSessionStartHooks, uninstallSessionStartHooks, sessionStartHookStatus } from 'axi-sdk-js';
+import launchEditor from 'launch-editor';
 import { VERSION } from './version.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -354,6 +355,13 @@ function cmdServe(args) {
       broadcast({ type: 'update', item: publicItem(it) });
       return json(res, 200, publicItem(it));
     }
+    if (p === '/open' && req.method === 'POST') {
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch (e) { return json(res, 400, { error: e.message }); }
+      if (typeof body.file !== 'string' || !body.file) return json(res, 400, { error: 'expected { file, line?, column? }' });
+      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
+      return json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+    }
     if (p === '/next' && req.method === 'GET') {
       const timeout = Math.min(Number(url.searchParams.get('timeout')) || 25000, 60000);
       const w = { res };
@@ -406,6 +414,24 @@ function cmdServe(args) {
     up.on('error', () => socket.destroy());
     socket.on('error', () => up.destroy());
   });
+
+  // Opens a source file from a hint in the editor on this machine (not the browser's), so it works from a phone.
+  // Only files inside the project (the cwd we were started from) - the hint comes from the page.
+  function openInEditor(file, line, column) {
+    const root = process.cwd();
+    const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
+    const abs = path.resolve(root, file);
+    if (!inside(root, abs)) return { status: 403, error: 'file is outside the project' };
+    let real;
+    try { real = fs.realpathSync(abs); } catch { return { status: 404, error: `${file} not found in ${root}` }; }
+    if (!inside(fs.realpathSync(root), real)) return { status: 403, error: 'file is outside the project' };
+    let failed = null;
+    launchEditor(abs + (line ? `:${line}${column ? `:${column}` : ''}` : ''), (f, msg) => { failed = msg || 'no editor found (set LAUNCH_EDITOR or EDITOR)'; });
+    if (failed) return { status: 500, error: failed }; // set synchronously when no editor is found
+    const rel = path.relative(root, abs);
+    log(`opened ${rel}${line ? `:${line}` : ''} in the editor`);
+    return { status: 200, file: rel };
+  }
 
   function log(msg) { console.log(`[punchlist ${new Date().toLocaleTimeString()}] ${msg}`); }
 

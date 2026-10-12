@@ -16,12 +16,13 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --outfile=scripts/punchlist-cli.mjs && esbuild src/punchlist-axi.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --external:./punchlist-cli.mjs --outfile=scripts/punchlist-axi.mjs",
+    "build": "esbuild src/cli.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.\nimport { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);' --outfile=scripts/punchlist-cli.mjs && esbuild src/punchlist-axi.mjs --bundle --platform=node --format=esm --target=node18 --banner:js='#!/usr/bin/env node\n// Generated from src/ by `pnpm build` - do not edit.' --external:./punchlist-cli.mjs --outfile=scripts/punchlist-axi.mjs",
     "pretest": "pnpm run --silent build",
     "test": "node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs"
   },
   "dependencies": {
-    "axi-sdk-js": "^0.1.13"
+    "axi-sdk-js": "^0.1.13",
+    "launch-editor": "^2.14.2"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
