@@ -1,0 +1,12 @@
+{
+  "name": "punchlist",
+  "private": true,
+  "type": "module",
+  "description": "Click-to-edit agent skill: proxy + injected picker + wait/done CLI. Runtime has zero dependencies; jsdom is for tests only.",
+  "scripts": {
+    "test": "node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

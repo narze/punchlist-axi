@@ -1,0 +1,112 @@
+// End-to-end: fixture server ← punchlist proxy ← curl-like fetches + agent CLI (wait/done/status).
+import assert from 'node:assert/strict';
+import { spawn, execFileSync } from 'node:child_process';
+import net from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startFixture } from './fixture-server.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const CLI = path.join(here, '../scripts/punchlist.mjs');
+const TPORT = 39000 + Math.floor(Math.random() * 500), PPORT = TPORT + 500;
+const fixture = await startFixture(TPORT);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let ok = 0; const t = async (name, fn) => { await fn(); ok++; console.log('✓', name); };
+const cli = (...a) => execFileSync(process.execPath, [CLI, ...a], { stdio: 'pipe', timeout: 15000 }).toString();
+const STATE = path.join(os.tmpdir(), 'punchlist', `${PPORT}.json`);
+
+try {
+  let startOut;
+  await t('start runs the proxy in the background and returns', async () => {
+    startOut = cli('start', '--target', String(TPORT), '--port', String(PPORT));
+    assert.match(startOut, /__pe\/auth\?token=/);
+    assert.match(startOut, /wait --port \d+/, 'tells the agent what to run next');
+    process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
+  });
+  const { token } = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+  await t('start again with the same target reuses the running proxy', async () => {
+    const again = cli('start', '--target', String(TPORT), '--port', String(PPORT));
+    assert.match(again, /already running/);
+    assert.ok(again.includes(`token=${token}`), 'same auth link');
+  });
+  await t('start with a different target on a busy port fails', async () => {
+    assert.throws(() => cli('start', '--target', String(TPORT + 1), '--port', String(PPORT)), /already proxies/);
+  });
+  const P = `http://127.0.0.1:${PPORT}`, C = { cookie: `__pe_auth=${token}` };
+  const get = (p, h = {}) => fetch(P + p, { headers: { ...C, ...h }, redirect: 'manual' });
+
+  await t('401 without token', async () => assert.equal((await fetch(P + '/')).status, 401));
+  await t('auth link sets cookie', async () => {
+    const r = await fetch(`${P}/__pe/auth?token=${token}`, { redirect: 'manual' });
+    assert.equal(r.status, 302); assert.match(r.headers.get('set-cookie'), /__pe_auth=/);
+  });
+  await t('injects picker, strips cookie Domain, rewrites absolute URLs', async () => {
+    const r = await get('/'); const body = await r.text();
+    assert.match(body, /<script src="\/__pe\/client.js" defer data-pe><\/script><\/head>/);
+    assert.doesNotMatch(r.headers.get('set-cookie'), /Domain/i);
+    assert.match(body, /href="\/abs"/);
+  });
+  await t('decodes gzip and strips CSP', async () => {
+    const r = await get('/gz', { 'accept-encoding': 'gzip' });
+    assert.equal(r.headers.get('content-security-policy'), null);
+    assert.match(await r.text(), /data-pe/);
+  });
+  await t('rewrites redirect Location', async () => assert.equal((await get('/redir')).headers.get('location'), '/landed'));
+  await t('POST passes CSRF origin check from a tailnet origin', async () => {
+    const r = await fetch(P + '/x', { method: 'POST', headers: { ...C, origin: 'https://box.tail1234.ts.net', 'x-forwarded-host': 'box.tail1234.ts.net' } });
+    assert.equal(await r.text(), 'csrf ok');
+  });
+  await t('WebSocket upgrade reaches upstream with rewritten Host', async () => {
+    const out = await new Promise((resolve, reject) => {
+      const s = net.connect(PPORT, '127.0.0.1', () => {
+        s.write(`GET /cable HTTP/1.1\r\nHost: box\r\nOrigin: https://box.ts.net\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nCookie: __pe_auth=${token}\r\n\r\n`);
+        setTimeout(() => s.write('ping-after'), 200);
+      });
+      let b = ''; s.on('data', d => { b += d; if (b.includes('ping-after')) { s.destroy(); resolve(b); } });
+      s.on('error', reject); setTimeout(() => reject(new Error('ws timeout')), 3000);
+    });
+    assert.match(out, /101 Switching/); assert.match(out, new RegExp(`X-Host: localhost:${TPORT}`));
+  });
+  await t('rejects malformed request payload', async () => {
+    const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: '{"prompt":"x"}' });
+    assert.equal(r.status, 400);
+  });
+  await t('wait → request → done → status', async () => {
+    const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
+    let out = ''; waiter.stdout.on('data', d => out += d);
+    await sleep(300);
+    const payload = { viewport: { w: 390, h: 844 }, notes: [
+      { kind: 'element', path: '/', comment: 'make it bigger', elements: [{ label: 'button#buy', selector: '#buy', html: '<button id="buy">Buy</button>', hints: { rails: ['app/views/events/_cta.html.erb'] } }] },
+      { kind: 'elements', path: '/', comment: 'pink border', elements: [{ label: 'div.tier', selector: '.tier:nth-of-type(1)', html: '<div class="tier"></div>' }, { label: 'div.tier', selector: '.tier:nth-of-type(2)', html: '<div class="tier"></div>' }] },
+    ] };
+    const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    assert.equal(r.status, 201);
+    const code = await new Promise(res => waiter.on('close', res));
+    assert.equal(code, 0);
+    assert.match(out, /## Edit request r1 — 2 notes/);
+    assert.match(out, /#### \[1\] `button#buy`/); assert.match(out, /#### \[2a\]/); assert.match(out, /#### \[2b\]/);
+    assert.match(out, /_cta\.html\.erb/);
+    execFileSync(process.execPath, [CLI, 'done', 'r1', '1: bigger 2: border', '--port', String(PPORT)]);
+    const st = execFileSync(process.execPath, [CLI, 'status', '--port', String(PPORT)]).toString();
+    assert.match(st, /r1\s+done/);
+  });
+  await t('wait times out with exit code 2', async () => {
+    let code = 0;
+    try { execFileSync(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '1'], { stdio: 'pipe' }); } catch (e) { code = e.status; }
+    assert.equal(code, 2);
+  });
+  await t('stop ends the background proxy', async () => {
+    const { pid } = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+    cli('stop', '--port', String(PPORT));
+    await sleep(300);
+    assert.throws(() => process.kill(pid, 0));
+    assert.equal(fs.existsSync(STATE), false);
+  });
+  console.log(`\n${ok} passed`);
+} finally {
+  try { process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid); } catch {}
+  fs.rmSync(STATE.replace(/\.json$/, '.log'), { force: true });
+  fixture.close();
+}
