@@ -46,7 +46,7 @@
     .label { font: 12px ui-monospace, monospace; color: #fbbf24; word-break: break-all; }
     .hint { font: 11px ui-monospace, monospace; color: #a1a1aa; margin-top: 2px; word-break: break-all; }
     .where { display: flex; gap: 8px; align-items: center; } .where .hint { flex: 1; min-width: 0; }
-    .sheet .open { padding: 2px 8px; font-size: 12px; flex: none; }
+    .sheet .open, .sheet .locate { padding: 2px 8px; font-size: 12px; flex: none; }
     textarea { width: 100%; min-height: 64px; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;
       background: #09090b; color: #fafafa; font-size: 16px; resize: vertical; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -71,7 +71,7 @@
   <button class="chip" type="button">💬 Annotate</button>
   <div class="sheet panel" role="dialog" aria-label="Add a note">
     <div class="label"></div>
-    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">↗ Open</button></div>
+    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">↗ Open</button><button class="locate" type="button" title="Ask the agent to find this file and open it in your editor">🔎 Locate</button></div>
     <textarea placeholder="What should change? (⌘/Ctrl+Enter to add)"></textarea>
     <div class="row">
       <button class="up" type="button" title="Select parent">⬆ parent</button>
@@ -341,6 +341,7 @@
     $('.hint').textContent = bestHint(snap.elements[0].hints) || snap.elements[0].selector;
     d.file = fileHint(snap.elements[0].hints);
     $('.open').style.display = d.file ? '' : 'none';
+    $('.locate').style.display = d.file ? 'none' : '';
     const single = d.kind === 'element';
     $('.up').style.display = $('.down').style.display = single ? '' : 'none';
     // keep the target visible: a target in the lower half gets the sheet at the top
@@ -375,6 +376,17 @@
       if (!r.ok) throw new Error(b.error || r.status);
       toast(`↗ Opened ${b.file} in your editor`, null, 2500);
     } catch (e) { toast(`❌ Open failed: ${e.message}`); }
+  };
+  // no file in the hints (e.g. JSX built without source info): the agent finds it and runs `done --open`
+  $('.locate').onclick = async () => {
+    if (!draft) return;
+    const { elements: [el], ...n } = snapshot(draft);
+    try {
+      const r = await fetch(API + '/requests', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'locate', notes: [{ ...n, comment: 'Find the source file of this element', elements: [el] }] }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      toast('🔎 Asked the agent to find this file', null, 2500);
+    } catch (e) { toast(`❌ Locate failed: ${e.message}`); }
   };
   $('.cancel').onclick = cancelDraft;
   $('.up').onclick = () => { const p = draft?.els[0].parentElement; if (pageEl(p)) startDraft({ kind: 'element', els: [p] }); };
@@ -518,6 +530,10 @@
     if (!fresh || prev?.status === it.status) return;
     if (it.status === 'pending') toast(`📨 ${it.id} queued — ${it.label}`);
     if (it.status === 'working') toast(`🛠 ${it.id} agent is on it`);
+    if (it.kind === 'locate') {
+      if (it.status === 'done' || it.status === 'failed') toast(`${it.status === 'done' ? '↗' : '❌'} ${it.message || (it.status === 'done' ? 'Opened' : 'Agent could not find the file')}`);
+      return;
+    }
     if (it.status === 'done' || it.status === 'failed') {
       if (it.status === 'done' && autoReload()) return location.reload();
       const wrap = document.createElement('span');

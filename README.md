@@ -40,6 +40,8 @@ Each note carries hints that point the agent at the source:
 
 When the hint names a file, the note panel shows **↗ Open**. The proxy opens that file (at the line, when the hint has one) in the editor on the machine where the proxy runs, so it also works when you tap on a phone. It uses [launch-editor](https://github.com/vitejs/launch-editor): it finds a running editor (VS Code, Cursor, Zed, JetBrains, Sublime...), or set `LAUNCH_EDITOR` (or `EDITOR`) in the shell that runs `start`. Only files inside the directory you started the proxy from can be opened.
 
+When the hints name no file (only a component name, or nothing), the panel shows **🔎 Locate** instead. It sends a small request to your agent, which finds the file and opens it with `done <id> --open <file>[:line]`. This works with any framework, but it takes the agent's time and needs a `wait` running.
+
 ## Known limits
 
 - HTML is buffered before injection, so streamed HTML arrives all at once.

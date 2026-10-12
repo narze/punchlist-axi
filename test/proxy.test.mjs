@@ -139,6 +139,31 @@ try {
     const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^  r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
+  await t('locate: the agent finds the file and opens it with done --open', async () => {
+    const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
+    let out = ''; waiter.stdout.on('data', d => out += d);
+    await sleep(300);
+    const payload = { kind: 'locate', notes: [{ kind: 'element', path: '/', comment: 'Find the source file of this element',
+      elements: [{ label: 'img.hidden-xs', selector: 'img.hidden-xs', html: '<img class="hidden-xs">', hints: { react: ['HeroImageCarousel', 'HeroBannerByLocation'] } }] }] };
+    const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    assert.equal(r.status, 201);
+    assert.equal((await r.json()).kind, 'locate', 'the browser learns the kind');
+    await new Promise(res => waiter.on('close', res));
+    assert.match(out, /kind: locate/);
+    assert.match(out, /react: HeroImageCarousel < HeroBannerByLocation/);
+    assert.match(out, /do not edit/i, 'tells the agent this is lookup only');
+    assert.match(out, /done r2 --open <file>\[:line\[:col\]\]/, 'names the command that answers it');
+    assert.doesNotMatch(out, /Handle every note/, 'no note-batch guidance');
+    fs.rmSync(OPENED, { force: true });
+    assert.throws(() => cli('done', 'r2', '--open', 'app/missing.jsx', '--port', String(PPORT)), e => /not found/.test(e.stdout), 'a wrong path fails so the agent can retry');
+    assert.match(cli('status', '--port', String(PPORT)), /^  r2,working,/m, 'and the request stays open');
+    const done = cli('done', 'r2', '--open', 'test/fixture-server.mjs:6:3', '--port', String(PPORT));
+    assert.match(done, /wait --port \d+/);
+    for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
+    assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.mjs')} 6 3`);
+    const item = await (await get('/__pe/requests/r2')).json();
+    assert.equal(item.status, 'done'); assert.equal(item.message, 'opened test/fixture-server.mjs:6:3');
+  });
   await t('wait times out with exit 0 and a definitive empty state', async () => {
     const out = cli('wait', '--port', String(PPORT), '--timeout', '1');
     assert.match(out, /^request: none/m);
