@@ -16,7 +16,7 @@
     "scripts/punchlist-axi.mjs",
     "scripts/punchlist-cli.mjs",
     "scripts/client.js",
-    "SKILL.md"
+    "skills/punchlist/SKILL.md"
   ],
   "engines": {
     "node": ">=18"
@@ -27,7 +27,7 @@
     "lint": "eslint --max-warnings 0 .",
     "check": "pnpm run --silent typecheck && pnpm run --silent lint",
     "pretest": "pnpm run --silent build",
-    "test": "node --import tsx test/cli.test.ts && node --import tsx test/proxy.test.ts && node --import tsx test/client.test.ts && node --import tsx test/drag.test.ts"
+    "test": "node --import tsx test/cli.test.ts && node --import tsx test/proxy.test.ts && node --import tsx test/client.test.ts && node --import tsx test/drag.test.ts && node --import tsx test/ports.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

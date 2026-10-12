@@ -8,7 +8,7 @@ Nothing in your app changes. It works in front of Rails (Turbo), SvelteKit/Vite,
 
 ## Use
 
-With the skill installed, ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
+Install the skill (Claude Code, Codex, OpenCode, Cursor and others) with `npx skills add narze/punchlist-axi --skill punchlist`, then ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
 
 By hand, with Node 18+ (no install needed):
 
@@ -20,6 +20,8 @@ npx -y punchlist-axi stop
 ```
 
 Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --target 5173`. Every output ends with the next command to run, written the way you called it.
+
+The proxy listens on port 4000, or on the next free port when 4000 is busy (like Vite). Running `start` again for the same dev server reuses its proxy. Pass `--port` to require one port.
 
 Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. 🗒 lists your notes; notes survive reloads until sent.
 

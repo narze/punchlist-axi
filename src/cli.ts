@@ -186,7 +186,7 @@ function links(st: ProxyState) {
   return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(ts ? { tailscale: `https://${ts}${authPath}` } : {}) };
 }
 
-function startOutput(st: ProxyState, state: 'started' | 'already running') {
+function startOutput(st: ProxyState, state: string) {
   const l = links(st);
   return {
     proxy: { target: st.target, port: st.port, pid: st.pid, state },
@@ -200,10 +200,29 @@ function startOutput(st: ProxyState, state: 'started' | 'already running') {
   };
 }
 
+const BASE_PORT = () => Number(process.env['PUNCHLIST_PORT'] || 4000);
+const PORT_TRIES = 20;
+
+function portFree(port: number, host: string) {
+  return new Promise<boolean>(resolve => {
+    const srv = net.createServer().once('error', () => { resolve(false); });
+    srv.listen(port, host, () => srv.close(() => { resolve(true); }));
+  });
+}
+
 // Runs `serve` as a detached child so the agent's shell is free, and returns once it listens.
+// Without --port: reuse a proxy for the same target, else the first free port from 4000 (like Vite).
 async function cmdStart(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
-  const port = Number(args.port ?? 4000);
+  const auto = args.port == null, base = BASE_PORT();
+  let port = auto ? base : Number(args.port);
+  if (auto) {
+    const running = runningProxies();
+    const same = running.find(st => st.target === target);
+    if (same) return startOutput(same, 'already running');
+    const held = new Set(running.map(st => st.port));
+    while (port < base + PORT_TRIES - 1 && (held.has(port) || !(await portFree(port, args.host ?? '127.0.0.1')))) port++;
+  }
   const p = statePath(port);
   const old = fs.existsSync(p) ? readState(p) : null;
   if (old && alive(old.pid)) {
@@ -214,15 +233,17 @@ async function cmdStart(args: Args) {
   fs.rmSync(p, { force: true });
   const logFile = path.join(STATE_DIR, `${port}.log`);
   const fd = fs.openSync(logFile, 'w');
-  const child = spawn(process.execPath, [SCRIPT, 'serve', ...process.argv.slice(3)], { detached: true, stdio: ['ignore', fd, fd] });
+  // serve still shifts on its own if the port is taken between our check and its listen
+  const child = spawn(process.execPath, [SCRIPT, 'serve', ...process.argv.slice(3)], { detached: true, stdio: ['ignore', fd, fd], env: { ...process.env, PUNCHLIST_PORT: String(port) } });
   child.unref();
   fs.closeSync(fd);
   const exit = { seen: false }; // an object, so the loop condition sees the 'exit' handler's write
   child.on('exit', () => { exit.seen = true; });
   for (let i = 0; i < 100 && !exit.seen; i++) {
     await new Promise(r => setTimeout(r, 100));
-    const st = fs.existsSync(p) ? readState(p) : null;
-    if (st && st.pid === child.pid) return startOutput(st, 'started');
+    const st = runningProxies().find(s => s.pid === child.pid);
+    if (st) return startOutput(st, st.port === base || !auto ? 'started'
+      : `started (${st.port - base > 1 ? `ports ${base}-${st.port - 1} are` : `port ${base} is`} busy)`);
   }
   if (!exit.seen) child.kill();
   const log = fs.readFileSync(logFile, 'utf8').trim().slice(-1000);
@@ -231,7 +252,9 @@ async function cmdStart(args: Args) {
 
 function cmdServe(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0]));
-  const port = Number(args.port ?? 4000);
+  const auto = args.port == null;
+  let port = Number(args.port ?? BASE_PORT()); // let: shifts on EADDRINUSE without --port
+  const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? '127.0.0.1';
   const noAuth = args['no-auth'] === true;
   const token = args.token ?? crypto.randomBytes(12).toString('base64url');
@@ -466,7 +489,10 @@ function cmdServe(args: Args) {
     printInfo(st);
   });
   // runs detached with output in the log file, so fail there (start reads it back)
-  server.on('error', (e: NodeJS.ErrnoException) => { console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1); });
+  server.on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); server.listen(++port, host); return; }
+    console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1);
+  });
 
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
@@ -691,11 +717,13 @@ Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 
 const HELP: Partial<Record<string, string>> = {
   start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
-  Start the proxy in the background and print the link for the user. Safe to re-run.
+  Start the proxy in the background and print the link for the user. Safe to re-run: without
+  --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
   the conversation; ask the user only if it is unclear.
   --target   dev server port or URL (required)
-  --port     proxy port (default 4000)
+  --port     proxy port, strict (default: 4000, or the next free port when it is busy;
+             set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
   --no-auth  no access token (purely local use only)
 examples:

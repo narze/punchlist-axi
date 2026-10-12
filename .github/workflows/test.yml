@@ -22,4 +22,4 @@ jobs:
         with:
           node-version: 18
       - name: Tests on node 18
-        run: node --version && for t in cli proxy client drag; do node --import tsx test/$t.test.ts || exit 1; done
+        run: node --version && for t in cli proxy client drag ports; do node --import tsx test/$t.test.ts || exit 1; done
