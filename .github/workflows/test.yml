@@ -1,0 +1,24 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5 # node from mise.toml
+      - uses: pnpm/action-setup@v6 # pnpm from package.json "packageManager"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test # rebuilds scripts/punchlist.mjs first
+      - name: Committed bundle matches src/
+        run: git diff --exit-code scripts/punchlist.mjs || (echo "::error::scripts/punchlist.mjs is stale - run pnpm build and commit it" && exit 1)
+      # package.json promises node >= 18 at runtime; pnpm itself needs a newer node, so run the tests directly
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 18
+      - name: Tests on node 18
+        run: node --version && node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs
