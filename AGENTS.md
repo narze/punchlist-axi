@@ -21,6 +21,7 @@ See README.md for what this is. TypeScript throughout. Layout: `src/cli.ts` (pro
 | Upstream sees `X-Forwarded-*` | Stripped on purpose | Rails would use the tailnet host and fail Host Authorization / CSRF origin checks. Upstream must see a plain `localhost` request. |
 | Skill holds the workflow text | Thin stub, CLI holds guidance | Copied from lavish-axi: installed skills go stale, the CLI does not. |
 | `start` in the foreground + `nohup` | `start` spawns a detached `serve` | The agent never manages processes. |
+| Phone access via `tailscale serve` | `start` also binds the Tailscale IPs, prints `http://<name>.ts.net:<port>` (2026-10-12) | No extra step for the user. Tailnet-only (not `0.0.0.0`, not funnel), token still required; skipped with `--no-tailscale`, `--no-auth` or an explicit `--host`. |
 | AXI (https://axi.md) | Adopt, with `axi-sdk-js` + bundled release | See docs/axi-plan.md. |
 | Plain JS | TypeScript + esbuild, strict tsc + typescript-eslint (2026-10-12) | The client and proxy share one wire format (`src/protocol.ts`); esbuild already bundled the release. TypeScript stays on 6.0 until typescript-eslint supports 7. |
 | In-page editor: Monaco | CodeMirror 6 (2026-10-12), a ✎ Edit button in the note panel, no mode or server flag | Monaco is poor on phones and needs web workers. CodeMirror mounts in the shadow root (`root` option). ~200 KB gzip, so it is a separate ES module (`scripts/editor.js`) the picker `import()`s on first use. Writes are limited to source files (no dotfiles, node_modules, git-ignored, binary) and refused on a stale etag (409); the access token already lets anyone drive the agent, so no extra opt-in. |
@@ -35,7 +36,7 @@ Desktop Chromium against GeekCraft (Rails + Turbo, on another tailnet host) and 
 ## Open work (priority order)
 
 1. AXI compatibility - docs/axi-plan.md.
-2. Real-device checks: iPhone Safari via `tailscale serve`, Vite HMR through the proxy, ActionCable (Eventpop).
+2. Real-device checks: iPhone Safari via the tailnet link (`start` binds the Tailscale IPs, plain HTTP), Vite HMR through the proxy, ActionCable (Eventpop).
 3. Agent presence in the toolbar ("agent listening"), queue saved to disk, Seen receipts (ideas from lavish-axi).
 4. React 19 source hints: `_debugSource` is gone; parse `_debugStack`.
 5. Streaming HTML: inject on the fly instead of buffering.

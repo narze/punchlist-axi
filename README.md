@@ -25,7 +25,7 @@ The proxy listens on port 4000, or on the next free port when 4000 is busy (like
 
 Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ Edit in the note panel edits the source in the page (see below). 🗒 lists your notes; notes survive reloads until sent.
 
-Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
+Phone access: when Tailscale is installed and connected, the proxy also listens on this machine's tailnet addresses, and `start` prints a second link, `http://<machine>.<tailnet>.ts.net:<port>/...`, that opens on any device in your tailnet. The token is still required. `--no-tailscale` turns this off; `--no-auth` and an explicit `--host` also skip it. Want HTTPS? Run `tailscale serve --bg <port>` yourself. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
 Optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
 
