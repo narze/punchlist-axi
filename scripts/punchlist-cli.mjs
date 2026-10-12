@@ -1342,6 +1342,7 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Send the user the local link exactly (its token sets the access cookie) before you run wait: wait blocks, so a message queued behind it may not reach the user",
+      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
       `Run \`${PE} wait --port ${st.port}\` to receive the user's notes`
     ]
@@ -1764,55 +1765,25 @@ async function home() {
 }
 var PE = `node ${SCRIPT}`;
 var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
-page; the user taps elements, writes notes and presses Send; you pull the batch, edit the source, report back.
+page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
 
-COMMANDS
-  ${PE} start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
-      Start the proxy in the background (returns at once; re-running with the same target is safe).
-      --target is the dev server port or URL. --host 0.0.0.0 listens on all interfaces.
-      --no-auth only for purely local use.
-  ${PE} serve ...          Same as start, but stays in the foreground (debugging).
-  ${PE} wait [--port 4000] [--timeout 540] [--json]
-      Block until the user sends a batch. \`request: none\` = nothing yet; exit 1 = error (read error/help).
-  ${PE} show <id> [--full] [--port 4000]   Print a request again; --full adds selectors, styles, full HTML.
-  ${PE} done <id> "<one line per note>" [--failed] [--port 4000]
-  ${PE} status [--port 4000]    List requests.
-  ${PE} stop [--port 4000]      Stop the proxy when the user is finished.
+commands:
+  start   proxy a dev server in the background and print the link for the user
+  wait    block until the user sends notes, then print them
+  show    print a request again (--full: selectors, styles, full HTML)
+  done    report a request back to the browser
+  status  list requests on a proxy
+  stop    stop a proxy
+  serve   run the proxy in the foreground (debugging)
 
-WORKFLOW
-  1. Find the dev server port (running processes, Procfile.dev, bin/dev, package.json scripts, the
-     conversation; ask the user only if unclear). Run start. Give the user the printed link exactly:
-     its token sets a cookie, and without it every page returns 401. If a Tailscale line is printed
-     and the user wants phone access, tell them to run \`tailscale serve --bg <port>\` and open the
-     HTTPS link. Never suggest \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
-  2. Tell the user briefly: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note,
-     repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P)
-     pauses animations. \u{1F5D2} lists notes. Notes survive reloads until sent.
-  3. Run wait. On \`request: none\`, run it again without commentary; keep going until the user
-     tells you to stop. On an error, follow its help line (usually: run start again).
-  4. A request holds notes with targets keyed [1], [2] or [3a], [3b]. Kinds: element (one target),
-     elements (apply to all; often a shared partial/component), text (change that exact text; it may
-     live in an i18n file), area (empty space boxed; change belongs at that spot in the container).
-     Handle every note, then run done once with a short line per note. If some notes fail, still do
-     the others and say which failed; use --failed only when nothing could be done. Then wait again.
-
-FINDING THE SOURCE (in this order)
-  1. Svelte file:line:col or React _debugSource - open it directly.
-  2. Rails templates - the last entry is the innermost partial/view. Present only with
-     config.action_view.annotate_rendered_view_with_filenames = true in development. Suggest it once
-     for Rails apps; do not add it yourself unless the user agrees.
-  3. React/Vue component names - grep for the definition.
-  4. No hints - grep for visible text (also config/locales/*.yml, src/lib/i18n), id, data-testid,
-     data-controller/data-action, uncommon class names. The page path tells you the route.
-  The HTML is rendered output, not source. Make the smallest change; if the element comes from a
-  shared component/partial, say in the done message that the change affects every use.
-
-KNOWN LIMITS
-  Streamed HTML is buffered before injection. Absolute dev-server URLs inside JS bundles are not
-  rewritten. Pages in cross-origin iframes cannot be picked.`;
+loop: start -> send the user the link -> wait -> edit the source -> done -> wait ...
+Every output ends with help lines that name the next command.
+Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
   start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
   Start the proxy in the background and print the link for the user. Safe to re-run.
+  Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
+  the conversation; ask the user only if it is unclear.
   --target   dev server port or URL (required)
   --port     proxy port (default 4000)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
@@ -1828,6 +1799,16 @@ examples:
   --port     proxy port (default: most recently started proxy)
   --timeout  seconds to wait (default 540, under most shell-tool limits)
   --json     raw request JSON instead of the formatted view
+  Keep re-running wait without commentary until the user tells you to stop.
+finding the source (in this order):
+  1. svelte file:line:col (or React _debugSource) - open it directly
+  2. rails templates - the last entry is the innermost partial. Needs
+     config.action_view.annotate_rendered_view_with_filenames = true in development; suggest it
+     once for Rails apps, never add it without the user's consent
+  3. react/vue component names - grep for the definition
+  4. no hints - grep for visible text (also i18n files), ids, data-* attributes, rare classes
+  The HTML is rendered output, not source. Make the smallest change; if a target comes from a
+  shared partial or component, say in done that every use changes.
 examples:
   ${PE} wait --port 4000`,
   show: `show <id> [--full] [--port 4000]
@@ -1835,7 +1816,8 @@ examples:
 examples:
   ${PE} show r1 --full --port 4000`,
   done: `done <id> "<one line per note>" [--failed] [--port 4000]
-  Report a request back to the browser (shown as a toast).
+  Report a request back to the browser (shown as a toast). Run it once per request.
+  If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
