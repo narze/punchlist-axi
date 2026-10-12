@@ -27,6 +27,7 @@ t('no args shows the home view, not a manual', () => {
   const r = run();
   assert.equal(r.code, 0);
   assert.match(r.out, /^bin: /m); assert.match(r.out, /^description: /m); assert.match(r.out, /^help\[/m);
+  assert.match(r.out, /--help` for commands and the loop/);
 });
 t('unknown command: exit 2, structured error on stdout', () => {
   const r = run('bogus');
