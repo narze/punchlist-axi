@@ -23,6 +23,8 @@ Open the printed link (its token sets an access cookie). In the page: press ◎ 
 
 Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
+Optional: `node scripts/punchlist-axi.mjs setup hooks` adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
+
 `node scripts/punchlist-axi.mjs --help` is the full guide for agents.
 
 ## Source hints
