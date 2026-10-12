@@ -34,4 +34,4 @@ Requirement 4 (AGENTS.md) was zero runtime dependencies. AXI's reference SDK `ax
 2. [x] TOON output for `status`, `start`, `done`, `stop`; home view on no args; `--version` (via `runAxiCli`). [x] `--version` fast path: `src/punchlist.mjs` + leaf `src/version.mjs`, CLI loaded by dynamic import.
 3. [x] `wait` in TOON with truncation (HTML at 600 chars) + new `show <id> [--full]`; kind-specific `help[]` lines.
 4. [x] Short top-level `--help` (commands + loop); guidance moved to `start`/`wait`/`done --help` and the `start` output; known limits live in README.
-5. `setup hooks` (SessionStart) + generated SKILL.md with `--check`.
+5. [x] `setup hooks [--project] [--remove]` (SessionStart for Claude Code, Codex, OpenCode); home view scoped to the directory `start` ran in. [ ] Generated SKILL.md with `--check`.

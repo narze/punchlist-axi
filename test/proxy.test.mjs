@@ -33,6 +33,13 @@ try {
     assert.match(again, /already running/);
     assert.ok(again.includes(`token=${token}`), 'same auth link');
   });
+  await t('home view lists only proxies started from this directory', async () => {
+    const here = execFileSync(process.execPath, [CLI], { cwd: process.cwd() }).toString();
+    assert.match(here, new RegExp(`^  ${PPORT},`, 'm'));
+    const elsewhere = execFileSync(process.execPath, [CLI], { cwd: os.tmpdir() }).toString();
+    assert.doesNotMatch(elsewhere, new RegExp(`^  ${PPORT},`, 'm'));
+    assert.match(elsewhere, /other_proxies: \d+/);
+  });
   await t('start with a different target on a busy port fails', async () => {
     assert.throws(() => cli('start', '--target', String(TPORT + 1), '--port', String(PPORT)), e => /already proxies/.test(e.stdout));
   });

@@ -78,4 +78,27 @@ t('per-command --help is concise and lists the flags', () => {
   const r = run('wait', '--help');
   assert.equal(r.code, 0); assert.match(r.out, /--timeout/); assert.doesNotMatch(r.out, /FINDING THE SOURCE/);
 });
+t('setup needs a known target', () => {
+  const r = run('setup');
+  assert.equal(r.code, 2); assert.match(r.out, /setup hooks/);
+});
+t('setup hooks installs a working SessionStart hook, idempotently, and --remove takes it out', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-home-'));
+  const env = { ...process.env, HOME: home };
+  const go = (...a) => spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', env, timeout: 15000 });
+  const settings = () => JSON.parse(fs.readFileSync(path.join(home, '.claude/settings.json'), 'utf8'));
+  const hooks = () => (settings().hooks?.SessionStart || []).flatMap(g => g.hooks).filter(h => h.command.includes('punchlist'));
+
+  const first = go('setup', 'hooks');
+  assert.equal(first.status, 0, first.stdout); assert.match(first.stdout, /claude/);
+  assert.equal(hooks().length, 1, 'one managed Claude Code hook');
+  const hook = spawnSync(hooks()[0].command, { shell: true, encoding: 'utf8', env, cwd: home });
+  assert.equal(hook.status, 0); assert.match(hook.stdout, /^description: /m, 'the hook prints the home view');
+
+  assert.equal(go('setup', 'hooks').status, 0);
+  assert.equal(hooks().length, 1, 'second install does not duplicate');
+
+  const removed = go('setup', 'hooks', '--remove');
+  assert.equal(removed.status, 0); assert.equal(hooks().length, 0);
+});
 console.log(`\n${ok} passed`);
