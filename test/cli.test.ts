@@ -8,16 +8,16 @@ import { fileURLToPath } from 'node:url';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '../scripts/punchlist-axi.mjs');
 const FREE = String(41000 + Math.floor(Math.random() * 500)); // a port with no proxy
-const run = (...a) => { const r = spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', timeout: 15000 }); return { code: r.status, out: r.stdout, err: r.stderr }; };
-let ok = 0; const t = (name, fn) => { fn(); ok++; console.log('✓', name); };
+const run = (...a: string[]) => { const r = spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', timeout: 15000 }); return { code: r.status, out: r.stdout, err: r.stderr }; };
+let ok = 0; const t = (name: string, fn: () => void) => { fn(); ok++; console.log('✓', name); };
 
 t('--version prints the bare version', () => {
   const r = run('--version');
   assert.equal(r.code, 0); assert.equal(r.out, '0.1.0\n');
 });
 t('--version is answered before the CLI loads (close to an empty-module floor)', () => {
-  const time = args => { const s = performance.now(); spawnSync(process.execPath, args); return performance.now() - s; };
-  const median = args => { time(args); const xs = Array.from({ length: 9 }, () => time(args)).sort((a, b) => a - b); return xs[4]; };
+  const time = (args: string[]) => { const s = performance.now(); spawnSync(process.execPath, args); return performance.now() - s; };
+  const median = (args: string[]) => { time(args); const xs = Array.from({ length: 9 }, () => time(args)).sort((a, b) => a - b); return xs[4] ?? NaN; };
   // floor = an empty ES module: loading any .mjs bin costs this much (much more than `node -e` on node 18)
   const empty = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pl-')), 'empty.mjs'); fs.writeFileSync(empty, '');
   const floor = median([empty]), version = median([CLI, '--version']), full = median([CLI, 'stop', '--port', FREE]);
@@ -89,9 +89,9 @@ t('setup needs a known target', () => {
 t('setup hooks installs a working SessionStart hook, idempotently, and --remove takes it out', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-home-'));
   const env = { ...process.env, HOME: home };
-  const go = (...a) => spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', env, timeout: 15000 });
-  const settings = () => JSON.parse(fs.readFileSync(path.join(home, '.claude/settings.json'), 'utf8'));
-  const all = () => (settings().hooks?.SessionStart || []).flatMap(g => g.hooks);
+  const go = (...a: string[]) => spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', env, timeout: 15000 });
+  const settings = () => JSON.parse(fs.readFileSync(path.join(home, '.claude/settings.json'), 'utf8')) as { hooks?: { SessionStart?: { hooks: { command: string }[] }[] } };
+  const all = () => (settings().hooks?.SessionStart ?? []).flatMap(g => g.hooks);
   const hooks = () => all().filter(h => h.command.includes('punchlist-axi'));
   const mine = { type: 'command', command: 'cd ~/punchlist && ./notes.sh' };
   fs.mkdirSync(path.join(home, '.claude'));
@@ -100,7 +100,7 @@ t('setup hooks installs a working SessionStart hook, idempotently, and --remove 
   const first = go('setup', 'hooks');
   assert.equal(first.status, 0, first.stdout); assert.match(first.stdout, /claude/);
   assert.equal(hooks().length, 1, 'one managed Claude Code hook');
-  const hook = spawnSync(hooks()[0].command, { shell: true, encoding: 'utf8', env, cwd: home });
+  const hook = spawnSync(hooks()[0]?.command ?? 'false', { shell: true, encoding: 'utf8', env, cwd: home });
   assert.equal(hook.status, 0); assert.match(hook.stdout, /^description: /m, 'the hook prints the home view');
 
   assert.equal(go('setup', 'hooks').status, 0);
@@ -111,7 +111,7 @@ t('setup hooks installs a working SessionStart hook, idempotently, and --remove 
   assert.deepEqual(all().map(h => h.command), [mine.command], 'an unrelated user hook survives install and --remove');
 });
 // Copies the built scripts into a package layout, the way npm lays them out.
-const installAt = dir => {
+const installAt = (dir: string) => {
   const pkg = path.join(dir, 'punchlist-axi');
   fs.mkdirSync(pkg, { recursive: true });
   fs.cpSync(path.dirname(CLI), path.join(pkg, 'scripts'), { recursive: true });
@@ -126,7 +126,7 @@ t('under npx, next steps say npx -y punchlist-axi, and setup hooks refuses a cac
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-npx-'));
   const bin = installAt(path.join(tmp, '_npx/0123abcd/node_modules'));
   const env = { ...process.env, HOME: tmp };
-  const go = (...a) => spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8', env, timeout: 15000 });
+  const go = (...a: string[]) => spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8', env, timeout: 15000 });
   assert.match(go('--help').stdout, /Run `npx -y punchlist-axi <command> --help`/);
   assert.match(go('stop', '--port', FREE).stdout, /no-op/, 'commands still run');
   const r = go('setup', 'hooks');
@@ -137,7 +137,7 @@ t('when installed globally, next steps say punchlist-axi', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-global-'));
   const bin = installAt(path.join(tmp, 'lib/node_modules'));
   fs.mkdirSync(path.join(tmp, 'bin')); fs.symlinkSync(bin, path.join(tmp, 'bin/punchlist-axi'));
-  const env = { ...process.env, PATH: `${path.join(tmp, 'bin')}${path.delimiter}${process.env.PATH}` };
+  const env = { ...process.env, PATH: `${path.join(tmp, 'bin')}${path.delimiter}${process.env['PATH'] ?? ''}` };
   const r = spawnSync(process.execPath, [bin, '--help'], { encoding: 'utf8', env, timeout: 15000 });
   assert.match(r.stdout, /Run `punchlist-axi <command> --help`/);
 });

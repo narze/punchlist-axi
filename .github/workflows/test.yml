@@ -13,12 +13,13 @@ jobs:
       - uses: jdx/mise-action@v5 # node from mise.toml
       - uses: pnpm/action-setup@v6 # pnpm from package.json "packageManager"
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check # tsc (strict) + eslint (typescript-eslint strict + stylistic, type-checked)
       - run: pnpm test # rebuilds the bundles in scripts/ first
       - name: Committed bundles match src/
         run: test -z "$(git status --porcelain scripts/)" || (git status --short scripts/ && echo "::error::scripts/ is stale - run pnpm build and commit the result" && exit 1)
-      # package.json promises node >= 18 at runtime; pnpm itself needs a newer node, so run the tests directly
+      # package.json promises node >= 18 at runtime; pnpm itself needs a newer node, so run the tests directly (tsx runs the .ts tests)
       - uses: actions/setup-node@v7
         with:
           node-version: 18
       - name: Tests on node 18
-        run: node --version && node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs
+        run: node --version && for t in cli proxy client drag; do node --import tsx test/$t.test.ts || exit 1; done

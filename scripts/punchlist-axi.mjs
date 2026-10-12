@@ -18,8 +18,8 @@ function tryFastPath(argv, options) {
 // package.json
 var version = "0.1.0";
 
-// src/version.mjs
+// src/version.ts
 var VERSION = version;
 
-// src/punchlist-axi.mjs
+// src/punchlist-axi.ts
 if (!tryFastPath(process.argv.slice(2), { version: VERSION })) await import("./punchlist-cli.mjs");

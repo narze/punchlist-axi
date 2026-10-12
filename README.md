@@ -56,5 +56,6 @@ When the hints name no file (only a component name, or nothing), the panel shows
 
 ```bash
 pnpm install && pnpm test   # pnpm version comes from package.json "packageManager"
+pnpm check                  # typecheck (strict tsc) + lint (typescript-eslint, strict)
 node scripts/punchlist-axi.mjs --help   # run the checkout
 ```
