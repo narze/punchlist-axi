@@ -35,6 +35,7 @@ const SERVE_FLAGS = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 
 const FLAGS = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
+  show: { port: 'v', full: 'b' },
   done: { port: 'v', failed: 'b' },
   status: { port: 'v' },
   stop: { port: 'v' },
@@ -336,6 +337,10 @@ function cmdServe(args) {
     }
     if (p === '/requests' && req.method === 'GET') return json(res, 200, items.map(publicItem));
     let m;
+    if ((m = p.match(/^\/requests\/([\w-]+)$/)) && req.method === 'GET') {
+      const it = items.find(i => i.id === m[1]);
+      return it ? json(res, 200, it) : json(res, 404, { error: 'unknown id' });
+    }
     if ((m = p.match(/^\/requests\/([\w-]+)\/done$/)) && req.method === 'POST') {
       const it = items.find(i => i.id === m[1]);
       if (!it) return json(res, 404, { error: 'unknown id' });
@@ -419,43 +424,55 @@ function cmdServe(args) {
 
 // ---------------------------------------------------------------- agent side
 
-function formatItem(it, port) {
+const HTML_LIMIT = 600;
+
+// One request as AXI output: minimal fields by default, everything with `full`.
+function requestView(it, port, full = false) {
   const { notes, viewport } = it.payload;
-  const out = [`## Edit request ${it.id} — ${notes.length} note${notes.length > 1 ? 's' : ''}`];
-  if (viewport) out.push(`Viewport: ${viewport.w}×${viewport.h}`);
-  out.push('', 'Handle every note. Notes may touch the same file; read each target before editing.', '');
-  notes.forEach((n, i) => {
-    const no = i + 1;
-    const what = n.kind === 'text' ? `selected text in ${n.elements[0].label}`
-      : n.kind === 'elements' ? `${n.elements.length} elements`
-      : n.kind === 'area' ? `area ${Math.round(n.area.width)}×${Math.round(n.area.height)} inside ${n.elements[0].label}`
-      : n.elements[0].label;
-    out.push(`### Note ${no}: ${n.comment}`);
-    out.push(`- Target: ${what}${n.frozen ? ' (captured with animations paused)' : ''}`);
-    out.push(`- Page: ${n.path}${n.title ? ` — "${n.title}"` : ''}`);
-    if (n.kind === 'text') out.push(`- Selected text: ${JSON.stringify(n.text)} (change this text specifically)`);
-    if (n.kind === 'area') out.push(`- Area at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)}); the user boxed empty space inside the target — the change belongs there`);
-    n.elements.forEach((e, j) => {
-      const key = n.elements.length > 1 ? `${no}${'abcdef'[j]}` : `${no}`;
-      out.push('', `#### [${key}] \`${e.label}\``);
-      out.push(`- Selector: \`${e.selector}\``);
-      if (e.ancestors?.length) out.push(`- Inside: ${e.ancestors.map(a => `\`${a}\``).join(' > ')}`);
-      const h = e.hints || {}, hints = [];
-      if (h.svelte?.length) hints.push(`Svelte ${h.svelte.join(', ')}`);
-      if (h.rails?.length) hints.push(`Rails templates (outer → inner): ${h.rails.join(' > ')}`);
-      if (h.react?.length) hints.push(`React ${h.react.join(' < ')}`);
-      if (h.vue?.length) hints.push(`Vue ${h.vue.join(' < ')}`);
-      out.push(`- Source hints: ${hints.length ? hints.join('; ') : 'none — grep for the text, ids, classes or data-* attributes'}`);
-      if (e.text) out.push(`- Visible text: ${JSON.stringify(e.text)}`);
-      if (e.styles) out.push(`- Computed styles: ${Object.entries(e.styles).map(([k, v]) => `${k}: ${v}`).join('; ')}`);
-      if (e.rect) out.push(`- Box: ${Math.round(e.rect.width)}×${Math.round(e.rect.height)} at page (${Math.round(e.rect.x)}, ${Math.round(e.rect.y)})`);
-      out.push('```html', e.html, '```');
-    });
-    out.push('');
-  });
-  out.push(`When finished: node ${SCRIPT} done ${it.id} "<one line per note, e.g. 1: … 2: …>" --port ${port}   (add --failed if nothing could be done)`);
-  out.push(`Then listen again: node ${SCRIPT} wait --port ${port}`);
-  return out.join('\n');
+  const kinds = new Set(notes.map(n => n.kind));
+  let cut = false;
+  const noHint = [];
+  const view = {
+    request: { id: it.id, status: it.status, notes: notes.length, ...(viewport ? { viewport: `${viewport.w}x${viewport.h}` } : {}) },
+    notes: notes.map((n, i) => ({
+      key: String(i + 1),
+      kind: n.kind,
+      comment: n.comment,
+      page: n.path,
+      ...(n.frozen ? { frozen: 'captured with animations paused' } : {}),
+      ...(n.kind === 'text' ? { selected: n.text } : {}),
+      ...(n.kind === 'area' ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {}),
+      targets: n.elements.map((e, j) => {
+        const key = n.elements.length > 1 ? `${i + 1}${'abcdef'[j]}` : String(i + 1);
+        const h = e.hints || {};
+        const hints = Object.fromEntries(['svelte', 'rails', 'react', 'vue'].filter(k => h[k]?.length)
+          .map(k => [k, h[k].join(k === 'rails' ? ' > ' : k === 'svelte' ? ', ' : ' < ')]));
+        if (!Object.keys(hints).length) noHint.push(key);
+        let html = e.html || '';
+        if (!full && html.length > HTML_LIMIT) { html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`; cut = true; }
+        return {
+          key, label: e.label,
+          ...(Object.keys(hints).length ? { hints } : {}),
+          ...(e.text ? { text: e.text } : {}),
+          html,
+          ...(full ? {
+            selector: e.selector,
+            ...(e.ancestors?.length ? { inside: e.ancestors.join(' > ') } : {}),
+            ...(e.styles ? { styles: e.styles } : {}),
+            ...(e.rect ? { box: `${Math.round(e.rect.width)}x${Math.round(e.rect.height)} at page (${Math.round(e.rect.x)}, ${Math.round(e.rect.y)})` } : {}),
+          } : {}),
+        };
+      }),
+    })),
+  };
+  const help = ['Handle every note (notes may touch the same file), then report once'];
+  if (kinds.has('elements')) help.push('kind elements: apply the comment to every target; they often share one partial or component');
+  if (kinds.has('text')) help.push('kind text: change exactly the selected text; it may live in an i18n file (config/locales, src/lib/i18n)');
+  if (kinds.has('area')) help.push('kind area: the user boxed empty space; the change belongs at that spot inside the target');
+  if (noHint.length) help.push(`No source hint for [${noHint.join('], [')}]: grep for the visible text, ids, data-* attributes or uncommon classes; the page path tells you the route`);
+  if (cut || !full) help.push(`Run \`${PE} show ${it.id} --full --port ${port}\` for selectors, computed styles${cut ? ' and the full HTML' : ''}`);
+  help.push(`Run \`${PE} done ${it.id} "<one line per note, e.g. 1: ... 2: ...>" --port ${port}\` when finished (--failed if nothing could be done)`);
+  return { ...view, help };
 }
 
 async function cmdWait(args) {
@@ -468,11 +485,20 @@ async function cmdWait(args) {
     const r = await api(st, `/next?timeout=${left}`);
     if (r.status === 200) {
       const it = await r.json();
-      return args.json ? JSON.stringify(it, null, 2) : formatItem(it, st.port);
+      return args.json ? JSON.stringify(it, null, 2) : requestView(it, st.port);
     }
     if (r.status !== 204) throw new AxiError(`unexpected ${r.status} from the proxy: ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
   }
   return { request: `none (waited ${secs}s)`, help: [`Run \`${PE} wait --port ${st.port}\` to keep listening`] };
+}
+
+async function cmdShow(args) {
+  const id = args._[0];
+  if (!id) throw usageError('request id is required', 'show', [`Run \`${PE} show <id> [--full]\``]);
+  const st = loadState(args);
+  const r = await api(st, `/requests/${encodeURIComponent(id)}`);
+  if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, 'NOT_FOUND', [`Run \`${PE} status --port ${st.port}\` to list requests`]);
+  return requestView(await r.json(), st.port, args.full === true);
 }
 
 async function cmdDone(args) {
@@ -546,6 +572,7 @@ COMMANDS
   ${PE} serve ...          Same as start, but stays in the foreground (debugging).
   ${PE} wait [--port 4000] [--timeout 540] [--json]
       Block until the user sends a batch. \`request: none\` = nothing yet; exit 1 = error (read error/help).
+  ${PE} show <id> [--full] [--port 4000]   Print a request again; --full adds selectors, styles, full HTML.
   ${PE} done <id> "<one line per note>" [--failed] [--port 4000]
   ${PE} status [--port 4000]    List requests.
   ${PE} stop [--port 4000]      Stop the proxy when the user is finished.
@@ -602,6 +629,10 @@ examples:
   --json     raw request JSON instead of the formatted view
 examples:
   ${PE} wait --port 4000`,
+  show: `show <id> [--full] [--port 4000]
+  Print one request again. --full adds selectors, ancestors, computed styles, boxes and untruncated HTML.
+examples:
+  ${PE} show r1 --full --port 4000`,
   done: `done <id> "<one line per note>" [--failed] [--port 4000]
   Report a request back to the browser (shown as a toast).
   --failed   nothing could be done; the message says why
@@ -615,7 +646,7 @@ examples:
 };
 
 const handler = fn => cmd => argv => fn(parseArgs(cmd, argv));
-const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, done: cmdDone, status: cmdStatus, stop: cmdStop })
+const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop })
   .map(([k, fn]) => [k, handler(fn)(k)]));
 
 await runAxiCli({

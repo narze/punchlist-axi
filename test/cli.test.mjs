@@ -34,6 +34,10 @@ t('done without an id is a usage error', () => {
   const r = run('done', '--port', FREE);
   assert.equal(r.code, 2); assert.match(r.out, /^error: /m);
 });
+t('show without an id is a usage error', () => {
+  const r = run('show', '--port', FREE);
+  assert.equal(r.code, 2); assert.match(r.out, /^error: /m);
+});
 t('stop when nothing runs is a no-op', () => {
   const r = run('stop', '--port', FREE);
   assert.equal(r.code, 0); assert.match(r.out, /no proxy running.*no-op/);

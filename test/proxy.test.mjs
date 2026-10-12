@@ -73,23 +73,38 @@ try {
     const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: '{"prompt":"x"}' });
     assert.equal(r.status, 400);
   });
-  await t('wait → request → done → status', async () => {
+  const LONG = '<section>' + 'x'.repeat(5000) + '</section>';
+  await t('wait prints the batch as TOON with hints, truncated HTML and next steps', async () => {
     const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
     let out = ''; waiter.stdout.on('data', d => out += d);
     await sleep(300);
     const payload = { viewport: { w: 390, h: 844 }, notes: [
-      { kind: 'element', path: '/', comment: 'make it bigger', elements: [{ label: 'button#buy', selector: '#buy', html: '<button id="buy">Buy</button>', hints: { rails: ['app/views/events/_cta.html.erb'] } }] },
-      { kind: 'elements', path: '/', comment: 'pink border', elements: [{ label: 'div.tier', selector: '.tier:nth-of-type(1)', html: '<div class="tier"></div>' }, { label: 'div.tier', selector: '.tier:nth-of-type(2)', html: '<div class="tier"></div>' }] },
+      { kind: 'element', path: '/', comment: 'make it bigger', elements: [{ label: 'button#buy', selector: '#buy', text: 'Buy', html: '<button id="buy">Buy</button>', styles: { 'font-size': '15px' }, hints: { rails: ['app/views/events/_cta.html.erb'] } }] },
+      { kind: 'elements', path: '/', comment: 'pink border', elements: [{ label: 'div.tier', selector: '.tier:nth-of-type(1)', html: '<div class="tier"></div>' }, { label: 'section.big', selector: '.big', html: LONG }] },
     ] };
     const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
     assert.equal(r.status, 201);
     const code = await new Promise(res => waiter.on('close', res));
     assert.equal(code, 0);
-    assert.match(out, /## Edit request r1 — 2 notes/);
-    assert.match(out, /#### \[1\] `button#buy`/); assert.match(out, /#### \[2a\]/); assert.match(out, /#### \[2b\]/);
-    assert.match(out, /_cta\.html\.erb/);
-    execFileSync(process.execPath, [CLI, 'done', 'r1', '1: bigger 2: border', '--port', String(PPORT)]);
-    const st = execFileSync(process.execPath, [CLI, 'status', '--port', String(PPORT)]).toString();
+    assert.match(out, /^request:\n  id: r1\n/m);
+    assert.match(out, /key: "1"/); assert.match(out, /^ +2a,div.tier,/m); assert.match(out, /^ +2b,section.big,/m);
+    assert.match(out, /rails: app\/views\/events\/_cta\.html\.erb/);
+    assert.match(out, /truncated, 5019 chars total/);
+    assert.doesNotMatch(out, /x{1000}/, 'long HTML is cut');
+    assert.doesNotMatch(out, /font-size/, 'computed styles only in show --full');
+    assert.match(out, /apply the comment to every target/i, 'help for the elements kind');
+    assert.match(out, /no source hint for \[2a\]/i, 'grep tip only for targets without hints');
+    assert.match(out, /show r1 --full/);
+    assert.match(out, /done r1 /);
+  });
+  await t('show --full prints selectors, styles and the whole HTML', async () => {
+    const out = cli('show', 'r1', '--full', '--port', String(PPORT));
+    assert.match(out, /selector: "?#buy"?/); assert.match(out, /font-size/); assert.match(out, /x{5000}/);
+    assert.throws(() => cli('show', 'r9', '--port', String(PPORT)), e => /NOT_FOUND/.test(e.stdout));
+  });
+  await t('done and status after a batch', async () => {
+    cli('done', 'r1', '1: bigger 2: border', '--port', String(PPORT));
+    const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^  r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
   await t('wait times out with exit 0 and a definitive empty state', async () => {
