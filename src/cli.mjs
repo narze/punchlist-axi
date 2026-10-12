@@ -1,6 +1,6 @@
 // punchlist — proxy any local web app, inject an element picker, and queue
 // "change this element" requests for whatever coding agent is running the loop.
-// Source; `npm run build` bundles it into scripts/punchlist.mjs, which needs only Node >= 18 or Bun.
+// Source; `pnpm build` bundles it into scripts/punchlist.mjs, which needs only Node >= 18 or Bun.
 //
 //   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
