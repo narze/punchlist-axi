@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Item, PublicItem } from '../src/protocol.ts';
+import type { Item, OpenResult, PublicItem, SourceFile } from '../src/protocol.ts';
 import { startFixture } from './fixture-server.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -106,7 +106,10 @@ try {
     const open = (body: object) => fetch(P + '/__pe/open', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await open({ file: 'test/fixture-server.ts', line: 6, column: 3 });
     assert.equal(r.status, 200);
-    assert.equal((await r.json() as { file: string }).file, 'test/fixture-server.ts');
+    const res = await r.json() as OpenResult;
+    assert.equal(res.file, 'test/fixture-server.ts');
+    assert.equal(res.abs, path.resolve('test/fixture-server.ts'));
+    assert.match(res.url, new RegExp(`^vscode://vscode-remote/ssh-remote\\+[^/]+@[^/]+${res.abs.replace(/[.+]/g, '\\$&')}:6:3$`), 'with the Remote-SSH URL for other machines');
     for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
     assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.ts')} 6 3`);
     assert.equal((await open({ file: path.resolve('package.json') })).status, 200, 'absolute paths inside the project are fine');
@@ -115,6 +118,52 @@ try {
     assert.equal((await open({ file: 'app/views/missing.html.erb' })).status, 404);
     assert.equal((await open({})).status, 400);
     assert.equal((await fetch(P + '/__pe/open', { method: 'POST', body: '{"file":"package.json"}' })).status, 401, 'needs the auth cookie');
+    await sleep(300); fs.rmSync(OPENED, { force: true }); // the package.json launch above writes late
+    assert.equal((await open({ file: 'package.json', launch: false })).status, 200);
+    await sleep(300);
+    assert.equal(fs.existsSync(OPENED), false, 'launch: false only resolves');
+  });
+  // a scratch file inside the project, git-tracked or not but not ignored, so the browser editor may write it
+  const SCRATCH = `test/scratch-${PPORT}.txt`, IGNORED = `dist/scratch-${PPORT}.txt`, BINARY = `test/scratch-${PPORT}.bin`;
+  await t('the browser editor reads and saves project source files, nothing else', async () => {
+    const read = (p: string) => get(`/__pe/file?path=${encodeURIComponent(p)}`);
+    const save = (body: object) => fetch(P + '/__pe/file', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    fs.writeFileSync(SCRATCH, 'one\n');
+    const r = await read(SCRATCH);
+    assert.equal(r.status, 200);
+    const src = await r.json() as SourceFile;
+    assert.deepEqual({ file: src.file, content: src.content }, { file: SCRATCH, content: 'one\n' });
+    const ok = await save({ file: SCRATCH, content: 'two\n', etag: src.etag });
+    assert.equal(ok.status, 200);
+    assert.equal(fs.readFileSync(SCRATCH, 'utf8'), 'two\n', 'written to disk');
+    const { etag } = await ok.json() as { etag: string };
+    assert.notEqual(etag, src.etag);
+    fs.writeFileSync(SCRATCH, 'agent\n'); // someone else writes it meanwhile
+    const stale = await save({ file: SCRATCH, content: 'three\n', etag });
+    assert.equal(stale.status, 409, 'a save over a newer file is refused');
+    assert.equal(fs.readFileSync(SCRATCH, 'utf8'), 'agent\n');
+    const now = (await stale.json() as { etag: string }).etag;
+    assert.equal((await save({ file: SCRATCH, content: 'three\n', etag: now })).status, 200, 'overwrite with the etag on disk');
+    assert.equal(fs.readFileSync(SCRATCH, 'utf8'), 'three\n');
+    assert.equal((await read('test/fixture-server.ts')).status, 200);
+    assert.equal((await read('.gitignore')).status, 403, 'no dotfiles');
+    assert.equal((await read('node_modules/svelte/package.json')).status, 403, 'no node_modules');
+    fs.mkdirSync('dist', { recursive: true }); fs.writeFileSync(IGNORED, 'x');
+    assert.equal((await read(IGNORED)).status, 403, 'nothing git ignores');
+    assert.equal((await read('../outside.txt')).status, 403, 'nothing outside the project');
+    assert.equal((await read('/etc/hosts')).status, 403);
+    assert.equal((await read('src')).status, 404, 'not a directory');
+    assert.equal((await read('missing.txt')).status, 404);
+    fs.writeFileSync(BINARY, Buffer.from([1, 0, 2]));
+    assert.equal((await read(BINARY)).status, 415, 'no binary files');
+    assert.equal((await save({ file: '.gitignore', content: '', etag: 'x' })).status, 403, 'refused for writes too');
+    assert.equal((await save({ file: SCRATCH })).status, 400);
+    assert.equal((await fetch(`${P}/__pe/file?path=${SCRATCH}`)).status, 401, 'needs the auth cookie');
+  });
+  await t('serves the editor bundle', async () => {
+    const r = await get('/__pe/editor.js', { 'accept-encoding': 'gzip' });
+    assert.equal(r.status, 200);
+    assert.equal(await r.text(), fs.readFileSync(path.join(here, '../scripts/editor.js'), 'utf8'));
   });
   const LONG = '<section>' + 'x'.repeat(5000) + '</section>';
   await t('wait prints the batch as TOON with hints, truncated HTML and next steps', async () => {
@@ -152,7 +201,7 @@ try {
     const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^ {2}r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
-  await t('locate: the agent finds the file and opens it with done --open', async () => {
+  await t('locate: the agent finds the file and hands it back with done --open', async () => {
     const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
     let out = ''; waiter.stdout.on('data', (d: Buffer) => { out += d.toString(); });
     await sleep(300);
@@ -172,10 +221,32 @@ try {
     assert.match(cli('status', '--port', String(PPORT)), /^ {2}r2,working,/m, 'and the request stays open');
     const done = cli('done', 'r2', '--open', 'test/fixture-server.ts:6:3', '--port', String(PPORT));
     assert.match(done, /wait --port \d+/);
-    for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
-    assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.ts')} 6 3`);
+    await sleep(300);
+    assert.equal(fs.existsSync(OPENED), false, 'nothing is launched: the browser offers Open / Copy');
     const item = await (await get('/__pe/requests/r2')).json() as Item;
-    assert.equal(item.status, 'done'); assert.equal(item.message, 'opened test/fixture-server.ts:6:3');
+    assert.equal(item.status, 'done'); assert.equal(item.message, 'found test/fixture-server.ts:6:3');
+    assert.deepEqual(item.file, { file: 'test/fixture-server.ts', line: 6, column: 3 }, 'the browser gets the file');
+  });
+  await t('locate for the browser editor: done --open hands the file to the browser', async () => {
+    const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
+    let out = ''; waiter.stdout.on('data', (d: Buffer) => { out += d.toString(); });
+    await sleep(300);
+    const payload = { kind: 'locate', edit: true, notes: [{ kind: 'element', path: '/', comment: 'Find the source file of this element',
+      elements: [{ label: 'span', selector: 'span', html: '<span></span>', hints: { vue: ['PriceTag'] } }] }] };
+    const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    assert.equal(r.status, 201);
+    await new Promise(res => waiter.on('close', res));
+    assert.match(out, /in the editor in their browser/, 'tells the agent where it opens');
+    fs.rmSync(OPENED, { force: true });
+    assert.throws(() => cli('done', 'r3', '--open', '.gitignore', '--port', String(PPORT)), e => stdout(e).includes('cannot be edited in the browser'), 'only editable files');
+    const done = cli('done', 'r3', '--open', 'test/fixture-server.ts:6', '--port', String(PPORT));
+    assert.match(done, /wait --port \d+/);
+    const item = await (await get('/__pe/requests')).json() as PublicItem[];
+    const r3 = item.find(i => i.id === 'r3');
+    assert.equal(r3?.status, 'done'); assert.equal(r3.message, 'found test/fixture-server.ts:6');
+    assert.deepEqual(r3.file, { file: 'test/fixture-server.ts', line: 6 }, 'the browser learns the file');
+    await sleep(300);
+    assert.equal(fs.existsSync(OPENED), false, 'no desktop editor');
   });
   await t('wait times out with exit 0 and a definitive empty state', () => {
     const out = cli('wait', '--port', String(PPORT), '--timeout', '1');
@@ -194,5 +265,7 @@ try {
   try { process.kill(readState().pid); } catch {}
   fs.rmSync(STATE.replace(/\.json$/, '.log'), { force: true });
   fs.rmSync(OPENED, { force: true }); fs.rmSync(EDITOR, { force: true });
+  for (const f of ['scratch.txt', 'scratch.bin']) fs.rmSync(path.join(here, f.replace('.', `-${PPORT}.`)), { force: true });
+  fs.rmSync(path.join(here, `../dist/scratch-${PPORT}.txt`), { force: true });
   fixture.close();
 }

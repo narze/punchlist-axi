@@ -38,7 +38,7 @@ try {
     assert.match(fs.readFileSync(LOG, 'utf8'), /no requests for 2s, exiting/);
   });
   await t('start --help documents --idle-timeout', () => {
-    assert.match(cli('start', '--help').out, /--idle-timeout\n.*default 3600; 0 = never/s);
+    assert.match(cli('start', '--help').out, /--idle-timeout.*default 3600; 0 = never/s);
   });
 } finally {
   cli('stop', '--port', String(PORT));

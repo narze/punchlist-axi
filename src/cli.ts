@@ -2,7 +2,7 @@
 // "change this element" requests for whatever coding agent is running the loop.
 // TypeScript source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
-//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--idle-timeout 3600]   (background)
+//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
 //   punchlist wait  [--port 4000] [--timeout 540] [--json]
 //   punchlist done  <id> ["summary"] [--failed] [--port 4000]
@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { runAxiCli, AxiError, installSessionStartHooks, uninstallSessionStartHooks, sessionStartHookStatus } from 'axi-sdk-js';
 import type { AxiCliCommand } from 'axi-sdk-js';
 import launchEditor from 'launch-editor';
-import type { Item, LooseElement, Payload, PublicItem, ServerEvent, Status } from './protocol.ts';
+import type { FileRef, Item, LooseElement, OpenRequest, OpenResult, Payload, PublicItem, ServerEvent, SourceFile, Status } from './protocol.ts';
 import { VERSION } from './version.ts';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -38,7 +38,7 @@ const COOKIE = '__pe_auth';
 type Command = 'start' | 'serve' | 'wait' | 'show' | 'done' | 'status' | 'stop' | 'setup';
 type FlagSpec = Record<string, 'v' | 'b'>; // v = takes a value, b = boolean
 
-const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 'v', 'idle-timeout': 'v' };
+const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', 'no-tailscale': 'b', token: 'v', root: 'v', 'editor-url': 'v', 'idle-timeout': 'v' };
 const FLAGS: Record<Command, FlagSpec> = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
@@ -52,12 +52,13 @@ const FLAGS: Record<Command, FlagSpec> = {
 // Every flag of every command; parseArgs only lets through the ones in FLAGS[cmd].
 interface Args {
   _: string[];
-  target?: string; port?: string; host?: string; 'no-auth'?: true; token?: string; 'idle-timeout'?: string;
+  target?: string; port?: string; host?: string; 'no-auth'?: true; 'no-tailscale'?: true; token?: string; root?: string; 'editor-url'?: string; 'idle-timeout'?: string;
   timeout?: string; json?: true; full?: true; failed?: true; open?: string; project?: true; remove?: true;
 }
 
 // Written by `serve` to STATE_DIR/<port>.json; every other command finds the proxy through it.
-interface ProxyState { port: number; host: string; target: string; token: string; auth: boolean; pid: number; cwd?: string }
+// tailnet = this machine's Tailscale name, set when the proxy also listens on the tailnet.
+interface ProxyState { port: number; host: string; target: string; token: string; auth: boolean; pid: number; cwd?: string; tailnet?: string }
 
 const errorMessage = (e: unknown) => e instanceof Error ? e.message : String(e);
 
@@ -102,6 +103,22 @@ function idleTimeout(args: Args, cmd: Command) {
   const raw = args['idle-timeout'] ?? '3600', secs = Number(raw);
   if (!raw.trim() || !(secs >= 0)) throw usageError('--idle-timeout must be a number of seconds (0 = never exit)', cmd);
   return secs;
+}
+
+// How a browser on another machine opens a file on this one: an editor URL that goes over SSH
+// (VS Code / Cursor Remote-SSH, Zed remote). {host} is user@<tailscale name or hostname>.
+const EDITOR_URLS: Record<string, string> = {
+  vscode: 'vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}',
+  cursor: 'cursor://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}',
+  windsurf: 'windsurf://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}',
+  zed: 'zed://ssh/{host}{abs}:{line}:{col}',
+};
+
+function editorUrlTemplate(v: string | undefined) {
+  const t = EDITOR_URLS[v ?? 'vscode'] ?? v ?? '';
+  if (!t.includes('{abs}')) throw usageError(`--editor-url must be ${Object.keys(EDITOR_URLS).join(', ')} or a template with {abs}`, 'start',
+    ["e.g. `--editor-url 'vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}'` ({host}, {abs}, {line}, {col})"]);
+  return t;
 }
 
 function statePath(port: string | number) { return path.join(STATE_DIR, `${port}.json`); }
@@ -164,10 +181,13 @@ function stripCookie(header: string | undefined, name: string) {
   return kept.length ? kept.join('; ') : undefined;
 }
 
-function tailscaleName() {
+// This machine's tailnet name and addresses, when tailscale is installed and connected.
+function tailscaleSelf() {
   try {
     const out = execFileSync('tailscale', ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, encoding: 'utf8' });
-    return (JSON.parse(out) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, '') ?? null;
+    const j = JSON.parse(out) as { BackendState?: string; Self?: { DNSName?: string; TailscaleIPs?: string[] } };
+    const name = j.Self?.DNSName?.replace(/\.$/, '');
+    return j.BackendState === 'Running' && name ? { name, ips: j.Self?.TailscaleIPs ?? [] } : null;
   } catch { return null; }
 }
 
@@ -177,20 +197,15 @@ function alive(pid: number) { try { process.kill(pid, 0); return true; } catch {
 
 function printInfo(st: ProxyState) {
   const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`);
-  if (ts) {
-    console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
-    console.log(`             https://${ts}${authPath}`);
-  }
+  if (st.tailnet) console.log(`  Tailscale: http://${st.tailnet}:${st.port}${authPath}`);
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 
 function links(st: ProxyState) {
   const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
-  return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(ts ? { tailscale: `https://${ts}${authPath}` } : {}) };
+  return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(st.tailnet ? { tailscale: `http://${st.tailnet}:${st.port}${authPath}` } : {}) };
 }
 
 function startOutput(st: ProxyState, state: string) {
@@ -200,8 +215,9 @@ function startOutput(st: ProxyState, state: string) {
     links: l,
     help: [
       'Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie',
-      'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor; when no file is known, 🔎 Locate asks you to find it',
-      ...(l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : []),
+      'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor (⧉ Copy copies path:line); when no file is known, 🔎 Locate asks you to find it. ✎ Edit in the note panel edits the file right in the page (with no file known, you find it first)',
+      'The user can save files from the page while you work: re-read a file before you edit it',
+      ...(l.tailscale ? ['Also paste the tailscale link: it opens on the user\'s phone or any other device in their tailnet'] : []),
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`,
     ],
   };
@@ -221,6 +237,8 @@ function portFree(port: number, host: string) {
 // Without --port: reuse a proxy for the same target, else the first free port from 4000 (like Vite).
 async function cmdStart(args: Args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
+  editorUrlTemplate(args['editor-url']); // fail here, not in the detached serve
+  if (args.root && !fs.existsSync(args.root)) throw usageError(`--root ${path.resolve(args.root)} does not exist`, 'start');
   idleTimeout(args, 'start'); // fail here, not in the detached serve's log
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
@@ -264,7 +282,16 @@ function cmdServe(args: Args) {
   let port = Number(args.port ?? BASE_PORT()); // let: shifts on EADDRINUSE without --port
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? '127.0.0.1';
+  const root = path.resolve(args.root ?? '.');
+  if (!fs.existsSync(root)) throw usageError(`--root ${root} does not exist`, 'serve');
+  const editorUrl = editorUrlTemplate(args['editor-url']);
+  let sshHost: string | null = null; // looked up on first use: tailscale status takes a moment
   const noAuth = args['no-auth'] === true;
+  // Also listen on this machine's Tailscale addresses, so other devices in the tailnet (a phone)
+  // reach the proxy at http://<name>.ts.net:<port>. Not with --no-auth or an explicit --host.
+  const wildcard = ['0.0.0.0', '::'].includes(host);
+  const ts = noAuth || args['no-tailscale'] || (args.host != null && !wildcard) ? null : tailscaleSelf();
+  const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString('base64url');
   const idleSecs = idleTimeout(args, 'serve');
   const targetPort = Number(target.port) || (target.protocol === 'https:' ? 443 : 80);
@@ -286,7 +313,7 @@ function cmdServe(args: Args) {
     const n = p.notes.length;
     return { label: n === 1 ? (p.notes[0]?.comment ?? '').slice(0, 60) : `${n} notes`, prompt: p.notes.map(x => x.comment).join(' | ') };
   };
-  const publicItem = (it: Item): PublicItem => ({ id: it.id, ...(it.payload.kind ? { kind: it.payload.kind } : {}), status: it.status, message: it.message, ...summarize(it.payload) });
+  const publicItem = (it: Item): PublicItem => ({ id: it.id, ...(it.payload.kind ? { kind: it.payload.kind } : {}), status: it.status, message: it.message, ...summarize(it.payload), ...(it.file ? { file: it.file } : {}) });
   const broadcast = (obj: ServerEvent) => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const r of sse) r.write(line); };
 
   function dispatch() {
@@ -376,9 +403,10 @@ function cmdServe(args: Args) {
 
   async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
     const p = url.pathname.slice(PREFIX.length);
-    if (p === '/client.js') {
-      // read per request so a rebuild shows up on reload; gzipped because it goes to phones on every page load
-      const js = fs.readFileSync(path.join(DIR, 'client.js'));
+    if (p === '/client.js' || p === '/editor.js') {
+      // read per request so a rebuild shows up on reload; gzipped because it goes to phones on every page load.
+      // editor.js (CodeMirror) is loaded only when the user opens the in-browser editor.
+      const js = fs.readFileSync(path.join(DIR, p.slice(1)));
       const gz = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store', vary: 'accept-encoding',
         ...(gz ? { 'content-encoding': 'gzip' } : {}) });
@@ -405,20 +433,47 @@ function cmdServe(args: Args) {
     if (done && req.method === 'POST') {
       const it = items.find(i => i.id === done);
       if (!it) { json(res, 404, { error: 'unknown id' }); return; }
-      let body: { status?: unknown; message?: unknown } = {};
+      let body: { status?: unknown; message?: unknown; file?: { [K in keyof FileRef]?: unknown } } = {};
       try { body = JSON.parse((await readBody(req)) || '{}') as typeof body; } catch {}
       it.status = body.status === 'failed' ? 'failed' : 'done';
       it.message = typeof body.message === 'string' && body.message ? body.message : null;
+      const f = body.file;
+      if (it.status === 'done' && typeof f?.file === 'string') it.file = { file: f.file, ...(f.line ? { line: Number(f.line) } : {}), ...(f.column ? { column: Number(f.column) } : {}) };
       log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ''}`);
       broadcast({ type: 'update', item: publicItem(it) });
       json(res, 200, publicItem(it)); return;
     }
     if (p === '/open' && req.method === 'POST') {
-      let body: { file?: unknown; line?: unknown; column?: unknown };
+      let body: { [K in keyof OpenRequest]?: unknown } & { request?: unknown };
       try { body = JSON.parse(await readBody(req)) as typeof body; } catch (e) { json(res, 400, { error: errorMessage(e) }); return; }
-      if (typeof body.file !== 'string' || !body.file) { json(res, 400, { error: 'expected { file, line?, column? }' }); return; }
-      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
-      json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error }); return;
+      if (typeof body.file !== 'string' || !body.file) { json(res, 400, { error: 'expected { file, line?, column?, launch?, request? }' }); return; }
+      // answering a locate from the in-browser editor: the file must be one the page may edit
+      const it = typeof body.request === 'string' ? items.find(i => i.id === body.request) : undefined;
+      if (it?.payload.edit) { const f = editable(body.file); if ('error' in f) { json(res, f.status, { error: f.error }); return; } }
+      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0, body.launch !== false);
+      json(res, r.status, r.status === 200 ? r.result : { error: r.error }); return;
+    }
+    if (p === '/file' && req.method === 'GET') {
+      const f = editable(url.searchParams.get('path') ?? '');
+      if ('error' in f) { json(res, f.status, { error: f.error }); return; }
+      const buf = fs.readFileSync(f.real);
+      if (buf.includes(0)) { json(res, 415, { error: `${f.rel} is a binary file` }); return; }
+      json(res, 200, { file: f.rel, content: buf.toString('utf8'), etag: etag(buf) } satisfies SourceFile); return;
+    }
+    if (p === '/file' && req.method === 'POST') {
+      let body: Partial<Record<keyof SourceFile, unknown>>;
+      try { body = JSON.parse(await readBody(req)) as typeof body; } catch (e) { json(res, 400, { error: errorMessage(e) }); return; }
+      const { file, content, etag: base } = body;
+      if (typeof file !== 'string' || typeof content !== 'string' || typeof base !== 'string') { json(res, 400, { error: 'expected { file, content, etag }' }); return; }
+      const f = editable(file);
+      if ('error' in f) { json(res, f.status, { error: f.error }); return; }
+      // the agent (or another tab) may have written it since the browser loaded it
+      const now = etag(fs.readFileSync(f.real));
+      if (now !== base) { json(res, 409, { error: `${f.rel} changed on disk since it was opened`, etag: now }); return; }
+      const buf = Buffer.from(content, 'utf8');
+      fs.writeFileSync(f.real, buf); // in place: keeps the mode, and dev-server watchers see a plain change
+      log(`saved ${f.rel} from the browser editor (${buf.length} bytes)`);
+      json(res, 200, { file: f.rel, etag: etag(buf) }); return;
     }
     if (p === '/next' && req.method === 'GET') {
       const timeout = Math.min(Number(url.searchParams.get('timeout')) || 25000, 60000);
@@ -439,7 +494,7 @@ function cmdServe(args: Args) {
     json(res, 404, { error: 'not found' });
   }
 
-  const server = http.createServer((req, res) => {
+  const handler = (req: http.IncomingMessage, res: http.ServerResponse) => {
     touch(); res.on('close', touch);
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === `${PREFIX}/auth`) {
@@ -456,10 +511,10 @@ function cmdServe(args: Args) {
     }
     if (url.pathname.startsWith(PREFIX + '/')) { handleApi(req, res, url).catch((e: unknown) => { json(res, 500, { error: errorMessage(e) }); }); return; }
     proxy(req, res);
-  });
+  };
 
   // WebSockets (Vite HMR, ActionCable, LiveReload…): raw pipe after rewriting headers.
-  server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+  const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     touch();
     if (!authed(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n'); return; }
     const opts = { host: target.hostname.replace(/^\[|\]$/g, ''), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
@@ -474,39 +529,94 @@ function cmdServe(args: Args) {
     }
     up.on('error', () => socket.destroy());
     socket.on('error', () => up.destroy());
-  });
+  };
 
-  // Opens a source file from a hint in the editor on this machine (not the browser's), so it works from a phone.
-  // Only files inside the project (the cwd we were started from) - the hint comes from the page.
-  function openInEditor(file: string, line: number, column: number): { status: 200; file: string } | { status: 403 | 404 | 500; error: string } {
-    const root = process.cwd();
+  // A file the page names (from a hint, or the browser editor): only inside the project (--root, default the cwd we were started from).
+  interface Refusal { status: 403 | 404 | 413; error: string }
+  function projectFile(file: string): { abs: string; real: string; rel: string; realRoot: string } | Refusal {
     const inside = (dir: string, f: string) => f === dir || f.startsWith(dir + path.sep);
     const abs = path.resolve(root, file);
     if (!inside(root, abs)) return { status: 403, error: 'file is outside the project' };
     let real;
     try { real = fs.realpathSync(abs); } catch { return { status: 404, error: `${file} not found in ${root}` }; }
-    if (!inside(fs.realpathSync(root), real)) return { status: 403, error: 'file is outside the project' };
-    const failures: string[] = []; // filled synchronously when no editor is found
-    launchEditor(abs + (line ? `:${line}${column ? `:${column}` : ''}` : ''), (_f, msg) => failures.push(msg ?? 'no editor found (set LAUNCH_EDITOR or EDITOR)'));
-    if (failures[0]) return { status: 500, error: failures[0] };
-    const rel = path.relative(root, abs);
-    log(`opened ${rel}${line ? `:${line}` : ''} in the editor`);
-    return { status: 200, file: rel };
+    const realRoot = fs.realpathSync(root);
+    if (!inside(realRoot, real)) return { status: 403, error: 'file is outside the project' };
+    return { abs, real, rel: path.relative(root, abs), realRoot };
+  }
+
+  // What the browser editor may read and write: source files. Not dotfiles (.env, .git), node_modules, or anything git ignores.
+  function editable(file: string) {
+    const f = projectFile(file);
+    if ('error' in f) return f;
+    const realRel = path.relative(f.realRoot, f.real);
+    if ([...f.rel.split(path.sep), ...realRel.split(path.sep)].some(s => s.startsWith('.') || s === 'node_modules'))
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (dotfiles and node_modules are off limits)` } satisfies Refusal;
+    try {
+      execFileSync('git', ['check-ignore', '-q', '--', realRel], { cwd: f.realRoot, stdio: 'ignore' });
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (git ignores it)` } satisfies Refusal;
+    } catch {} // exit 1: not ignored; 128 or no git: not a repo, nothing to ignore
+    const stat = fs.statSync(f.real);
+    if (!stat.isFile()) return { status: 404, error: `${f.rel} is not a file` } satisfies Refusal;
+    if (stat.size > 2_000_000) return { status: 413, error: `${f.rel} is too large to edit in the browser` } satisfies Refusal;
+    return f;
+  }
+
+  const etag = (buf: Buffer) => crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16);
+
+  // Resolves a source file from a hint and, when launch is set, opens it in the editor on this machine
+  // (the browser is on it too). Either way it returns the editor URL a browser on another machine opens instead.
+  function openInEditor(file: string, line: number, column: number, launch: boolean): { status: 200; result: OpenResult } | { status: 403 | 404 | 413 | 500; error: string } {
+    const f = projectFile(file);
+    if ('error' in f) return f;
+    const { abs, rel } = f;
+    sshHost ??= `${os.userInfo().username}@${(ts ?? tailscaleSelf())?.name ?? os.hostname()}`;
+    const vars: Record<string, string> = { host: sshHost, abs, file: rel, line: String(line || 1), col: String(column || 1) };
+    const url = editorUrl.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
+    if (launch) {
+      const failures: string[] = []; // filled synchronously when no editor is found
+      launchEditor(abs + (line ? `:${line}${column ? `:${column}` : ''}` : ''), (_f, msg) => failures.push(msg ?? 'no editor found (set LAUNCH_EDITOR or EDITOR)'));
+      if (failures[0]) return { status: 500, error: failures[0] };
+      log(`opened ${rel}${line ? `:${line}` : ''} in the editor`);
+    }
+    return { status: 200, result: { file: rel, abs, url } };
   }
 
   function log(msg: string) { console.log(`[punchlist ${new Date().toLocaleTimeString()}] ${msg}`); }
 
-  server.listen(port, host, () => {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
-    const st: ProxyState = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
-    fs.writeFileSync(statePath(port), JSON.stringify(st));
-    printInfo(st);
+  // One server per address, all on the same port.
+  const listenOn = (h: string) => new Promise<http.Server | NodeJS.ErrnoException>(resolve => {
+    const s = http.createServer(handler).on('upgrade', onUpgrade).once('error', resolve);
+    s.listen(port, h, () => { s.off('error', resolve); resolve(s); });
   });
   // runs detached with output in the log file, so fail there (start reads it back)
-  server.on('error', (e: NodeJS.ErrnoException) => {
-    if (e.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); server.listen(++port, host); return; }
-    console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1);
+  const fail = (msg: string): never => { console.error(msg); process.exit(1); };
+  async function bind() {
+    for (;;) {
+      const main = await listenOn(host);
+      if (!(main instanceof http.Server)) {
+        if (main.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); port++; continue; }
+        return fail(main.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : main.message);
+      }
+      const servers = [main];
+      let clash = false;
+      for (const ip of tailnetIps) {
+        const s = await listenOn(ip);
+        if (s instanceof http.Server) servers.push(s);
+        else if (s.code === 'EADDRINUSE') { clash = true; break; }
+        else log(`not listening on tailscale address ${ip}: ${s.code ?? s.message}`);
+      }
+      if (!clash) return servers.length > 1 || wildcard;
+      for (const s of servers) s.close();
+      if (auto && port < lastPort) { log(`port ${port} is in use on the tailnet, trying ${port + 1}`); port++; continue; }
+      return fail(`port ${port} is in use on the tailscale address (pick another with --port, or pass --no-tailscale)`);
+    }
+  }
+  void bind().then(onTailnet => {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
+    const st: ProxyState = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd(), ...(ts && onTailnet ? { tailnet: ts.name } : {}) };
+    fs.writeFileSync(statePath(port), JSON.stringify(st));
+    printInfo(st);
   });
 
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
@@ -579,9 +689,9 @@ function requestView(it: Item, port: number, full = false) {
     })),
   };
   if (it.payload.kind === 'locate') return { ...view, request: { ...view.request, kind: 'locate' }, help: [
-    'The user wants to open the source of this target in their editor: find the file (and line) that renders it. Lookup only - do not edit anything',
+    `The user wants to open the source of this target ${it.payload.edit ? 'in the editor in their browser (only source files: no dotfiles, node_modules or git-ignored files)' : 'in their editor'}: find the file (and line) that renders it. Lookup only - do not edit anything`,
     'Use the hints first (a component name: grep for its definition), then visible text, ids, data-* attributes or uncommon classes',
-    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to open it (a path relative to the project); --failed "<why>" if you cannot find it`,
+    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to hand it back (a path relative to the project; the browser offers Open / Copy); --failed "<why>" if you cannot find it`,
   ] };
   const help = ['Handle every note (notes may touch the same file), then report once'];
   if (kinds.has('elements')) help.push('kind elements: apply the comment to every target; they often share one partial or component');
@@ -625,16 +735,20 @@ async function cmdDone(args: Args) {
   const st = loadState(args);
   const status: Status = args.failed ? 'failed' : 'done';
   let message = args._.slice(1).join(' ') || null;
+  let found: FileRef | null = null;
   if (args.open && !args.failed) {
     const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
-    const o = await api(st, '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file, line, column }) });
-    const b = await o.json().catch(() => ({})) as { file?: string; error?: string };
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, 'OPEN_FAILED', [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`;
+    // resolve only: the browser offers Open / Copy (or opens it in the page editor), on whichever machine the user is at
+    const o = await api(st, '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file, line, column, launch: false, request: id }) });
+    const b = await o.json().catch(() => ({})) as Partial<OpenResult> & { error?: string };
+    if (!o.ok || !b.file) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, 'OPEN_FAILED', [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`,
+      ...(o.status === 403 ? [`If no editable file renders it, run \`${PE} done ${id} "<why>" --failed --port ${st.port}\``] : [])]);
+    found = { file: b.file, ...(line ? { line: Number(line) } : {}), ...(column ? { column: Number(column) } : {}) };
+    message ??= `found ${b.file}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status, message }),
+    body: JSON.stringify({ status, message, ...(found ? { file: found } : {}) }),
   });
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, 'NOT_FOUND', [`Run \`${PE} status --port ${st.port}\` to list requests`]);
   if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
@@ -740,7 +854,7 @@ Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 
 const HELP: Partial<Record<string, string>> = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--idle-timeout 3600]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -749,10 +863,19 @@ const HELP: Partial<Record<string, string>> = {
   --port     proxy port, strict (default: 4000, or the next free port when it is busy;
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
-  --no-auth  no access token (purely local use only)
-  --idle-timeout
-             seconds without any request (page loads, a running wait) before the proxy
+  --no-auth  no access token (purely local use only; never on the tailnet)
+  --no-tailscale  do not listen on the tailnet
+  --root     project directory that ↗ Open resolves source hints against (default: the cwd)
+  --editor-url  how ↗ Open reaches the editor from a browser on another machine (tailscale):
+             vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
+             ({host} = user@<tailscale name>; the editor connects back over SSH).
+             A browser on localhost opens the file in the editor on this machine instead
+  --idle-timeout  seconds without any request (page loads, a running wait) before the proxy
              exits on its own (default 3600; 0 = never). After that, run start again
+  When tailscale is installed and connected, the proxy also listens on this machine's tailnet
+  addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
+  the user's phone. Only tailnet devices reach it, and the link token is still required.
+  Never use \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
@@ -789,7 +912,8 @@ examples:
   Report a request back to the browser (shown as a toast). Run it once per request.
   If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
-  --open     open this project file in the user's editor first (answers a locate request)
+  --open     the project file you found (answers a locate request); the user gets Open / Copy,
+             or the file opens in the page editor when they asked for ✎ Edit
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
   ${PE} done r2 "need the new copy for the hero" --failed

@@ -23,9 +23,9 @@ Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --
 
 The proxy listens on port 4000, or on the next free port when 4000 is busy (like Vite). Running `start` again for the same dev server reuses its proxy. Pass `--port` to require one port. The proxy exits on its own after an hour without requests (page loads, the agent's `wait`); `--idle-timeout <seconds>` changes that, `0` keeps it running.
 
-Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. 🗒 lists your notes; notes survive reloads until sent.
+Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ Edit in the note panel edits the source in the page (see below). 🗒 lists your notes; notes survive reloads until sent.
 
-Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
+Phone access: when Tailscale is installed and connected, the proxy also listens on this machine's tailnet addresses, and `start` prints a second link, `http://<machine>.<tailnet>.ts.net:<port>/...`, that opens on any device in your tailnet. The token is still required. `--no-tailscale` turns this off; `--no-auth` and an explicit `--host` also skip it. Want HTTPS? Run `tailscale serve --bg <port>` yourself. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
 Optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
 
@@ -42,9 +42,20 @@ Each note carries hints that point the agent at the source:
 
 ## Open in your editor
 
-When the hint names a file, the note panel shows **↗ Open**. The proxy opens that file (at the line, when the hint has one) in the editor on the machine where the proxy runs, so it also works when you tap on a phone. It uses [launch-editor](https://github.com/vitejs/launch-editor): it finds a running editor (VS Code, Cursor, Zed, JetBrains, Sublime...), or set `LAUNCH_EDITOR` (or `EDITOR`) in the shell that runs `start`. Only files inside the directory you started the proxy from can be opened.
+When the hint names a file, the note panel shows **↗ Open** and **⧉ Copy** (copies `path:line:col`). Files resolve against the directory you started the proxy from, or `--root <dir>`; only files inside it can be opened.
 
-When the hints name no file (only a component name, or nothing), the panel shows **🔎 Locate** instead. It sends a small request to your agent, which finds the file and opens it with `done <id> --open <file>[:line]`. This works with any framework, but it takes the agent's time and needs a `wait` running.
+- Browsing on the proxy machine (`localhost`): the proxy opens the file in the editor there, via [launch-editor](https://github.com/vitejs/launch-editor). It finds a running editor (VS Code, Cursor, Zed, JetBrains, Sublime...), or set `LAUNCH_EDITOR` (or `EDITOR`) in the shell that runs `start`.
+- Browsing from another machine (Tailscale): the browser follows an editor URL that opens the file over SSH on the proxy machine, `vscode://vscode-remote/ssh-remote+<you>@<tailscale name>/abs/path:line:col` by default. Pick another editor with `--editor-url cursor|windsurf|zed`, or pass a template with `{host}`, `{abs}`, `{line}`, `{col}`. Needs Remote-SSH access to the proxy machine. On a phone, use Copy, or ✎ Edit (below) to change it right in the page.
+
+When the hints name no file (only a component name, or nothing), the panel shows **🔎 Locate** instead. It sends a small request to your agent, which finds the file and hands it back with `done <id> --open <file>[:line]`; the answer arrives as a toast with the same Open / Copy choice. This works with any framework, but it takes the agent's time and needs a `wait` running.
+
+## Edit in the page
+
+**✎ Edit** in the note panel opens the file in a code editor ([CodeMirror](https://codemirror.net)) right in the page, at the hinted line. Save with the button or ⌘/Ctrl+S; the proxy writes the file on the dev machine, and your dev server's reload (Vite HMR, or Reload for Rails templates) shows the change. When the hints name no file, ✎ Edit asks your agent to find it (like 🔎 Locate) and the answer opens here. Drag the editor's header to move it and its corner to resize it (remembered per browser); double-click the header to put it back.
+
+If the file changed on disk since you opened it (say, your agent edited it), Save is refused and you choose **Load from disk** or **Overwrite**. The editor (about 200 KB gzipped) loads only the first time you open a file.
+
+Only source files inside the project (the start directory or `--root`) can be opened: no dotfiles (`.env`, `.git`), nothing in `node_modules`, nothing git ignores, no binary files. Anyone with the access link can save files, which is no more than they can already ask your agent to do.
 
 ## Known limits
 

@@ -33,17 +33,30 @@ export interface Note<E = ElementContext> {
   elements: E[];
 }
 
+// The in-browser editor: GET /file?path= answers SourceFile, POST /file takes SourceFile and answers it with the new etag.
+// A save whose etag no longer matches the file on disk gets 409 with the current etag.
+export interface SourceFile { file: string; content: string; etag: string }
+
 export interface Payload<E = ElementContext> {
   kind?: 'locate';  // the user asked the agent to find the file; no notes to apply
+  edit?: boolean;   // locate for the in-browser editor: the agent must name a file the page may edit
   notes: Note<E>[];
   viewport?: { w: number; h: number };
 }
 
 export type Status = 'pending' | 'working' | 'done' | 'failed';
 
-export interface Item { id: string; status: Status; createdAt: string; payload: Payload<LooseElement>; message: string | null }
+// A source file to open; relative to the project root, or absolute inside it.
+export interface FileRef { file: string; line?: number; column?: number }
 
-// What the browser sees of an item (no element context).
-export interface PublicItem { id: string; kind?: 'locate'; status: Status; message: string | null; label: string; prompt: string }
+// POST /open: launch (default) opens it in the editor on the proxy machine; launch false only resolves it
+// and returns the editor URL, for a browser on another machine to open.
+export interface OpenRequest extends FileRef { launch?: boolean }
+export interface OpenResult { file: string; abs: string; url: string }
+
+export interface Item { id: string; status: Status; createdAt: string; payload: Payload<LooseElement>; message: string | null; file?: FileRef }
+
+// What the browser sees of an item (no element context). file: what a locate request found.
+export interface PublicItem { id: string; kind?: 'locate'; status: Status; message: string | null; label: string; prompt: string; file?: FileRef }
 
 export type ServerEvent = { type: 'snapshot'; items: PublicItem[] } | { type: 'update'; item: PublicItem };

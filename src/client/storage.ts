@@ -1,9 +1,10 @@
-// Notes survive reloads and Turbo visits (sessionStorage); the auto-reload choice is per browser (localStorage).
+// Notes survive reloads and Turbo visits (sessionStorage); the auto-reload choice and the editor's place are per browser (localStorage).
 import type { Note } from '../protocol.ts';
-import { here, type LiveNote } from './context.ts';
+import { here, type Box, type LiveNote } from './context.ts';
 
 const STORE = '__pe_notes';
 const AUTO_RELOAD = '__pe_autoreload';
+const EDITOR_BOX = '__pe_editor_box';
 
 export const withoutEls = ({ els, ...n }: LiveNote): Note => n;
 
@@ -22,4 +23,12 @@ export function restore(): LiveNote[] {
 export const autoReload = () => { try { return localStorage.getItem(AUTO_RELOAD) === '1'; } catch { return false; } };
 export function setAutoReload(on: boolean) {
   try { localStorage.setItem(AUTO_RELOAD, on ? '1' : '0'); } catch {}
+}
+
+// where the user moved and sized the editor; null = the default place
+export function editorBox(): Box | null {
+  try { return JSON.parse(localStorage.getItem(EDITOR_BOX) ?? 'null') as Box | null; } catch { return null; }
+}
+export function setEditorBox(b: Box | null) {
+  try { if (b) localStorage.setItem(EDITOR_BOX, JSON.stringify(b)); else localStorage.removeItem(EDITOR_BOX); } catch {}
 }

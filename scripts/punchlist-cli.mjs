@@ -2812,7 +2812,7 @@ var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
-var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v", "idle-timeout": "v" };
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", "no-tailscale": "b", token: "v", root: "v", "editor-url": "v", "idle-timeout": "v" };
 var FLAGS = {
   start: SERVE_FLAGS,
   serve: SERVE_FLAGS,
@@ -2863,6 +2863,21 @@ function idleTimeout(args, cmd) {
   const raw = args["idle-timeout"] ?? "3600", secs = Number(raw);
   if (!raw.trim() || !(secs >= 0)) throw usageError("--idle-timeout must be a number of seconds (0 = never exit)", cmd);
   return secs;
+}
+var EDITOR_URLS = {
+  vscode: "vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  cursor: "cursor://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  windsurf: "windsurf://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  zed: "zed://ssh/{host}{abs}:{line}:{col}"
+};
+function editorUrlTemplate(v) {
+  const t = EDITOR_URLS[v ?? "vscode"] ?? v ?? "";
+  if (!t.includes("{abs}")) throw usageError(
+    `--editor-url must be ${Object.keys(EDITOR_URLS).join(", ")} or a template with {abs}`,
+    "start",
+    ["e.g. `--editor-url 'vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}'` ({host}, {abs}, {line}, {col})"]
+  );
+  return t;
 }
 function statePath(port) {
   return path.join(STATE_DIR, `${port}.json`);
@@ -2928,10 +2943,12 @@ function stripCookie(header, name) {
   const kept = header.split(";").map((s) => s.trim()).filter((s) => s && !s.startsWith(name + "="));
   return kept.length ? kept.join("; ") : void 0;
 }
-function tailscaleName() {
+function tailscaleSelf() {
   try {
     const out = execFileSync("tailscale", ["status", "--json"], { stdio: ["ignore", "pipe", "ignore"], timeout: 3e3, encoding: "utf8" });
-    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, "") ?? null;
+    const j = JSON.parse(out);
+    const name = j.Self?.DNSName?.replace(/\.$/, "");
+    return j.BackendState === "Running" && name ? { name, ips: j.Self?.TailscaleIPs ?? [] } : null;
   } catch {
     return null;
   }
@@ -2946,19 +2963,14 @@ function alive(pid) {
 }
 function printInfo(st) {
   const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`);
-  if (ts) {
-    console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
-    console.log(`             https://${ts}${authPath}`);
-  }
+  if (st.tailnet) console.log(`  Tailscale: http://${st.tailnet}:${st.port}${authPath}`);
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 function links(st) {
   const authPath = !st.auth ? "/" : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
-  return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...ts ? { tailscale: `https://${ts}${authPath}` } : {} };
+  return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...st.tailnet ? { tailscale: `http://${st.tailnet}:${st.port}${authPath}` } : {} };
 }
 function startOutput(st, state) {
   const l = links(st);
@@ -2967,8 +2979,9 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
-      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor; when no file is known, \u{1F50E} Locate asks you to find it",
-      ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
+      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor (\u29C9 Copy copies path:line); when no file is known, \u{1F50E} Locate asks you to find it. \u270E Edit in the note panel edits the file right in the page (with no file known, you find it first)",
+      "The user can save files from the page while you work: re-read a file before you edit it",
+      ...l.tailscale ? ["Also paste the tailscale link: it opens on the user's phone or any other device in their tailnet"] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]
   };
@@ -2987,6 +3000,8 @@ function portFree(port, host) {
 }
 async function cmdStart(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
+  editorUrlTemplate(args["editor-url"]);
+  if (args.root && !fs.existsSync(args.root)) throw usageError(`--root ${path.resolve(args.root)} does not exist`, "start");
   idleTimeout(args, "start");
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
@@ -3029,7 +3044,14 @@ function cmdServe(args) {
   let port = Number(args.port ?? BASE_PORT());
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? "127.0.0.1";
+  const root = path.resolve(args.root ?? ".");
+  if (!fs.existsSync(root)) throw usageError(`--root ${root} does not exist`, "serve");
+  const editorUrl = editorUrlTemplate(args["editor-url"]);
+  let sshHost = null;
   const noAuth = args["no-auth"] === true;
+  const wildcard = ["0.0.0.0", "::"].includes(host);
+  const ts = noAuth || args["no-tailscale"] || args.host != null && !wildcard ? null : tailscaleSelf();
+  const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString("base64url");
   const idleSecs = idleTimeout(args, "serve");
   const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
@@ -3047,7 +3069,7 @@ function cmdServe(args) {
     const n = p.notes.length;
     return { label: n === 1 ? (p.notes[0]?.comment ?? "").slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
   };
-  const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload) });
+  const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload), ...it.file ? { file: it.file } : {} });
   const broadcast = (obj) => {
     const line = `data: ${JSON.stringify(obj)}
 
@@ -3146,8 +3168,8 @@ function cmdServe(args) {
   }
   async function handleApi(req, res, url) {
     const p = url.pathname.slice(PREFIX.length);
-    if (p === "/client.js") {
-      const js = fs.readFileSync(path.join(DIR, "client.js"));
+    if (p === "/client.js" || p === "/editor.js") {
+      const js = fs.readFileSync(path.join(DIR, p.slice(1)));
       const gz = /\bgzip\b/.test(req.headers["accept-encoding"] ?? "");
       res.writeHead(200, {
         "content-type": "text/javascript; charset=utf-8",
@@ -3202,6 +3224,8 @@ function cmdServe(args) {
       }
       it.status = body.status === "failed" ? "failed" : "done";
       it.message = typeof body.message === "string" && body.message ? body.message : null;
+      const f = body.file;
+      if (it.status === "done" && typeof f?.file === "string") it.file = { file: f.file, ...f.line ? { line: Number(f.line) } : {}, ...f.column ? { column: Number(f.column) } : {} };
       log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ""}`);
       broadcast({ type: "update", item: publicItem(it) });
       json(res, 200, publicItem(it));
@@ -3216,11 +3240,62 @@ function cmdServe(args) {
         return;
       }
       if (typeof body.file !== "string" || !body.file) {
-        json(res, 400, { error: "expected { file, line?, column? }" });
+        json(res, 400, { error: "expected { file, line?, column?, launch?, request? }" });
         return;
       }
-      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
-      json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      const it = typeof body.request === "string" ? items.find((i) => i.id === body.request) : void 0;
+      if (it?.payload.edit) {
+        const f = editable(body.file);
+        if ("error" in f) {
+          json(res, f.status, { error: f.error });
+          return;
+        }
+      }
+      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0, body.launch !== false);
+      json(res, r.status, r.status === 200 ? r.result : { error: r.error });
+      return;
+    }
+    if (p === "/file" && req.method === "GET") {
+      const f = editable(url.searchParams.get("path") ?? "");
+      if ("error" in f) {
+        json(res, f.status, { error: f.error });
+        return;
+      }
+      const buf = fs.readFileSync(f.real);
+      if (buf.includes(0)) {
+        json(res, 415, { error: `${f.rel} is a binary file` });
+        return;
+      }
+      json(res, 200, { file: f.rel, content: buf.toString("utf8"), etag: etag(buf) });
+      return;
+    }
+    if (p === "/file" && req.method === "POST") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch (e) {
+        json(res, 400, { error: errorMessage(e) });
+        return;
+      }
+      const { file, content, etag: base } = body;
+      if (typeof file !== "string" || typeof content !== "string" || typeof base !== "string") {
+        json(res, 400, { error: "expected { file, content, etag }" });
+        return;
+      }
+      const f = editable(file);
+      if ("error" in f) {
+        json(res, f.status, { error: f.error });
+        return;
+      }
+      const now = etag(fs.readFileSync(f.real));
+      if (now !== base) {
+        json(res, 409, { error: `${f.rel} changed on disk since it was opened`, etag: now });
+        return;
+      }
+      const buf = Buffer.from(content, "utf8");
+      fs.writeFileSync(f.real, buf);
+      log(`saved ${f.rel} from the browser editor (${buf.length} bytes)`);
+      json(res, 200, { file: f.rel, etag: etag(buf) });
       return;
     }
     if (p === "/next" && req.method === "GET") {
@@ -3254,7 +3329,7 @@ function cmdServe(args) {
     }
     json(res, 404, { error: "not found" });
   }
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     touch();
     res.on("close", touch);
     const url = new URL(req.url ?? "/", "http://x");
@@ -3279,8 +3354,8 @@ function cmdServe(args) {
       return;
     }
     proxy(req, res);
-  });
-  server.on("upgrade", (req, socket, head) => {
+  };
+  const onUpgrade = (req, socket, head) => {
     touch();
     if (!authed(req)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -3301,9 +3376,8 @@ function cmdServe(args) {
     }
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
-  });
-  function openInEditor(file, line, column) {
-    const root = process.cwd();
+  };
+  function projectFile(file) {
     const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
     const abs = path.resolve(root, file);
     if (!inside(root, abs)) return { status: 403, error: "file is outside the project" };
@@ -3313,31 +3387,92 @@ function cmdServe(args) {
     } catch {
       return { status: 404, error: `${file} not found in ${root}` };
     }
-    if (!inside(fs.realpathSync(root), real)) return { status: 403, error: "file is outside the project" };
-    const failures = [];
-    (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
-    if (failures[0]) return { status: 500, error: failures[0] };
-    const rel = path.relative(root, abs);
-    log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
-    return { status: 200, file: rel };
+    const realRoot = fs.realpathSync(root);
+    if (!inside(realRoot, real)) return { status: 403, error: "file is outside the project" };
+    return { abs, real, rel: path.relative(root, abs), realRoot };
+  }
+  function editable(file) {
+    const f = projectFile(file);
+    if ("error" in f) return f;
+    const realRel = path.relative(f.realRoot, f.real);
+    if ([...f.rel.split(path.sep), ...realRel.split(path.sep)].some((s) => s.startsWith(".") || s === "node_modules"))
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (dotfiles and node_modules are off limits)` };
+    try {
+      execFileSync("git", ["check-ignore", "-q", "--", realRel], { cwd: f.realRoot, stdio: "ignore" });
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (git ignores it)` };
+    } catch {
+    }
+    const stat = fs.statSync(f.real);
+    if (!stat.isFile()) return { status: 404, error: `${f.rel} is not a file` };
+    if (stat.size > 2e6) return { status: 413, error: `${f.rel} is too large to edit in the browser` };
+    return f;
+  }
+  const etag = (buf) => crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+  function openInEditor(file, line, column, launch) {
+    const f = projectFile(file);
+    if ("error" in f) return f;
+    const { abs, rel } = f;
+    sshHost ??= `${os.userInfo().username}@${(ts ?? tailscaleSelf())?.name ?? os.hostname()}`;
+    const vars = { host: sshHost, abs, file: rel, line: String(line || 1), col: String(column || 1) };
+    const url = editorUrl.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
+    if (launch) {
+      const failures = [];
+      (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
+      if (failures[0]) return { status: 500, error: failures[0] };
+      log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
+    }
+    return { status: 200, result: { file: rel, abs, url } };
   }
   function log(msg) {
     console.log(`[punchlist ${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${msg}`);
   }
-  server.listen(port, host, () => {
+  const listenOn = (h) => new Promise((resolve2) => {
+    const s = http.createServer(handler).on("upgrade", onUpgrade).once("error", resolve2);
+    s.listen(port, h, () => {
+      s.off("error", resolve2);
+      resolve2(s);
+    });
+  });
+  const fail = (msg) => {
+    console.error(msg);
+    process.exit(1);
+  };
+  async function bind() {
+    for (; ; ) {
+      const main = await listenOn(host);
+      if (!(main instanceof http.Server)) {
+        if (main.code === "EADDRINUSE" && auto && port < lastPort) {
+          log(`port ${port} is in use, trying ${port + 1}`);
+          port++;
+          continue;
+        }
+        return fail(main.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : main.message);
+      }
+      const servers = [main];
+      let clash = false;
+      for (const ip of tailnetIps) {
+        const s = await listenOn(ip);
+        if (s instanceof http.Server) servers.push(s);
+        else if (s.code === "EADDRINUSE") {
+          clash = true;
+          break;
+        } else log(`not listening on tailscale address ${ip}: ${s.code ?? s.message}`);
+      }
+      if (!clash) return servers.length > 1 || wildcard;
+      for (const s of servers) s.close();
+      if (auto && port < lastPort) {
+        log(`port ${port} is in use on the tailnet, trying ${port + 1}`);
+        port++;
+        continue;
+      }
+      return fail(`port ${port} is in use on the tailscale address (pick another with --port, or pass --no-tailscale)`);
+    }
+  }
+  void bind().then((onTailnet) => {
     fs.mkdirSync(STATE_DIR, { recursive: true });
-    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
+    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd(), ...ts && onTailnet ? { tailnet: ts.name } : {} };
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
-  });
-  server.on("error", (e) => {
-    if (e.code === "EADDRINUSE" && auto && port < lastPort) {
-      log(`port ${port} is in use, trying ${port + 1}`);
-      server.listen(++port, host);
-      return;
-    }
-    console.error(e.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : e.message);
-    process.exit(1);
   });
   const cleanup = () => {
     try {
@@ -3411,9 +3546,9 @@ function requestView(it, port, full = false) {
     }))
   };
   if (it.payload.kind === "locate") return { ...view, request: { ...view.request, kind: "locate" }, help: [
-    "The user wants to open the source of this target in their editor: find the file (and line) that renders it. Lookup only - do not edit anything",
+    `The user wants to open the source of this target ${it.payload.edit ? "in the editor in their browser (only source files: no dotfiles, node_modules or git-ignored files)" : "in their editor"}: find the file (and line) that renders it. Lookup only - do not edit anything`,
     "Use the hints first (a component name: grep for its definition), then visible text, ids, data-* attributes or uncommon classes",
-    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to open it (a path relative to the project); --failed "<why>" if you cannot find it`
+    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to hand it back (a path relative to the project; the browser offers Open / Copy); --failed "<why>" if you cannot find it`
   ] };
   const help = ["Handle every note (notes may touch the same file), then report once"];
   if (kinds.has("elements")) help.push("kind elements: apply the comment to every target; they often share one partial or component");
@@ -3454,17 +3589,22 @@ async function cmdDone(args) {
   const st = loadState(args);
   const status = args.failed ? "failed" : "done";
   let message = args._.slice(1).join(" ") || null;
+  let found = null;
   if (args.open && !args.failed) {
     const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
-    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column }) });
+    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column, launch: false, request: id }) });
     const b = await o.json().catch(() => ({}));
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
+    if (!o.ok || !b.file) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [
+      `Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`,
+      ...o.status === 403 ? [`If no editable file renders it, run \`${PE} done ${id} "<why>" --failed --port ${st.port}\``] : []
+    ]);
+    found = { file: b.file, ...line ? { line: Number(line) } : {}, ...column ? { column: Number(column) } : {} };
+    message ??= `found ${b.file}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status, message })
+    body: JSON.stringify({ status, message, ...found ? { file: found } : {} })
   });
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, "NOT_FOUND", [`Run \`${PE} status --port ${st.port}\` to list requests`]);
   if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
@@ -3579,7 +3719,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--idle-timeout 3600]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode] [--idle-timeout 3600]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -3588,10 +3728,19 @@ var HELP = {
   --port     proxy port, strict (default: 4000, or the next free port when it is busy;
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
-  --no-auth  no access token (purely local use only)
-  --idle-timeout
-             seconds without any request (page loads, a running wait) before the proxy
+  --no-auth  no access token (purely local use only; never on the tailnet)
+  --no-tailscale  do not listen on the tailnet
+  --root     project directory that \u2197 Open resolves source hints against (default: the cwd)
+  --editor-url  how \u2197 Open reaches the editor from a browser on another machine (tailscale):
+             vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
+             ({host} = user@<tailscale name>; the editor connects back over SSH).
+             A browser on localhost opens the file in the editor on this machine instead
+  --idle-timeout  seconds without any request (page loads, a running wait) before the proxy
              exits on its own (default 3600; 0 = never). After that, run start again
+  When tailscale is installed and connected, the proxy also listens on this machine's tailnet
+  addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
+  the user's phone. Only tailnet devices reach it, and the link token is still required.
+  Never use \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
@@ -3628,7 +3777,8 @@ examples:
   Report a request back to the browser (shown as a toast). Run it once per request.
   If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
-  --open     open this project file in the user's editor first (answers a locate request)
+  --open     the project file you found (answers a locate request); the user gets Open / Copy,
+             or the file opens in the page editor when they asked for \u270E Edit
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
   ${PE} done r2 "need the new copy for the hero" --failed
