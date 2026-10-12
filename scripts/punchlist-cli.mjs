@@ -2812,7 +2812,7 @@ var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
-var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v" };
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v", root: "v", "editor-url": "v" };
 var FLAGS = {
   start: SERVE_FLAGS,
   serve: SERVE_FLAGS,
@@ -2858,6 +2858,21 @@ function normalizeTarget(t) {
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, "");
+}
+var EDITOR_URLS = {
+  vscode: "vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  cursor: "cursor://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  windsurf: "windsurf://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}",
+  zed: "zed://ssh/{host}{abs}:{line}:{col}"
+};
+function editorUrlTemplate(v) {
+  const t = EDITOR_URLS[v ?? "vscode"] ?? v ?? "";
+  if (!t.includes("{abs}")) throw usageError(
+    `--editor-url must be ${Object.keys(EDITOR_URLS).join(", ")} or a template with {abs}`,
+    "start",
+    ["e.g. `--editor-url 'vscode://vscode-remote/ssh-remote+{host}{abs}:{line}:{col}'` ({host}, {abs}, {line}, {col})"]
+  );
+  return t;
 }
 function statePath(port) {
   return path.join(STATE_DIR, `${port}.json`);
@@ -2962,7 +2977,7 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
-      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor; when no file is known, \u{1F50E} Locate asks you to find it",
+      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor (\u29C9 Copy copies path:line); when no file is known, \u{1F50E} Locate asks you to find it",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]
@@ -2982,6 +2997,8 @@ function portFree(port, host) {
 }
 async function cmdStart(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
+  editorUrlTemplate(args["editor-url"]);
+  if (args.root && !fs.existsSync(args.root)) throw usageError(`--root ${path.resolve(args.root)} does not exist`, "start");
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
   if (auto) {
@@ -3023,6 +3040,10 @@ function cmdServe(args) {
   let port = Number(args.port ?? BASE_PORT());
   const lastPort = port + PORT_TRIES - 1;
   const host = args.host ?? "127.0.0.1";
+  const root = path.resolve(args.root ?? ".");
+  if (!fs.existsSync(root)) throw usageError(`--root ${root} does not exist`, "serve");
+  const editorUrl = editorUrlTemplate(args["editor-url"]);
+  let sshHost = null;
   const noAuth = args["no-auth"] === true;
   const token = args.token ?? crypto.randomBytes(12).toString("base64url");
   const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
@@ -3040,7 +3061,7 @@ function cmdServe(args) {
     const n = p.notes.length;
     return { label: n === 1 ? (p.notes[0]?.comment ?? "").slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
   };
-  const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload) });
+  const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload), ...it.file ? { file: it.file } : {} });
   const broadcast = (obj) => {
     const line = `data: ${JSON.stringify(obj)}
 
@@ -3195,6 +3216,8 @@ function cmdServe(args) {
       }
       it.status = body.status === "failed" ? "failed" : "done";
       it.message = typeof body.message === "string" && body.message ? body.message : null;
+      const f = body.file;
+      if (it.status === "done" && typeof f?.file === "string") it.file = { file: f.file, ...f.line ? { line: Number(f.line) } : {}, ...f.column ? { column: Number(f.column) } : {} };
       log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ""}`);
       broadcast({ type: "update", item: publicItem(it) });
       json(res, 200, publicItem(it));
@@ -3209,11 +3232,11 @@ function cmdServe(args) {
         return;
       }
       if (typeof body.file !== "string" || !body.file) {
-        json(res, 400, { error: "expected { file, line?, column? }" });
+        json(res, 400, { error: "expected { file, line?, column?, launch? }" });
         return;
       }
-      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
-      json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0, body.launch !== false);
+      json(res, r.status, r.status === 200 ? r.result : { error: r.error });
       return;
     }
     if (p === "/next" && req.method === "GET") {
@@ -3292,8 +3315,7 @@ function cmdServe(args) {
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
   });
-  function openInEditor(file, line, column) {
-    const root = process.cwd();
+  function openInEditor(file, line, column, launch) {
     const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
     const abs = path.resolve(root, file);
     if (!inside(root, abs)) return { status: 403, error: "file is outside the project" };
@@ -3304,12 +3326,17 @@ function cmdServe(args) {
       return { status: 404, error: `${file} not found in ${root}` };
     }
     if (!inside(fs.realpathSync(root), real)) return { status: 403, error: "file is outside the project" };
-    const failures = [];
-    (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
-    if (failures[0]) return { status: 500, error: failures[0] };
     const rel = path.relative(root, abs);
-    log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
-    return { status: 200, file: rel };
+    sshHost ??= `${os.userInfo().username}@${tailscaleName() ?? os.hostname()}`;
+    const vars = { host: sshHost, abs, file: rel, line: String(line || 1), col: String(column || 1) };
+    const url = editorUrl.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
+    if (launch) {
+      const failures = [];
+      (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
+      if (failures[0]) return { status: 500, error: failures[0] };
+      log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
+    }
+    return { status: 200, result: { file: rel, abs, url } };
   }
   function log(msg) {
     console.log(`[punchlist ${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${msg}`);
@@ -3392,7 +3419,7 @@ function requestView(it, port, full = false) {
   if (it.payload.kind === "locate") return { ...view, request: { ...view.request, kind: "locate" }, help: [
     "The user wants to open the source of this target in their editor: find the file (and line) that renders it. Lookup only - do not edit anything",
     "Use the hints first (a component name: grep for its definition), then visible text, ids, data-* attributes or uncommon classes",
-    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to open it (a path relative to the project); --failed "<why>" if you cannot find it`
+    `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to hand it back (a path relative to the project; the browser offers Open / Copy); --failed "<why>" if you cannot find it`
   ] };
   const help = ["Handle every note (notes may touch the same file), then report once"];
   if (kinds.has("elements")) help.push("kind elements: apply the comment to every target; they often share one partial or component");
@@ -3433,17 +3460,19 @@ async function cmdDone(args) {
   const st = loadState(args);
   const status = args.failed ? "failed" : "done";
   let message = args._.slice(1).join(" ") || null;
+  let found = null;
   if (args.open && !args.failed) {
     const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
-    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column }) });
+    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column, launch: false }) });
     const b = await o.json().catch(() => ({}));
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
+    if (!o.ok || !b.file) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
+    found = { file: b.file, ...line ? { line: Number(line) } : {}, ...column ? { column: Number(column) } : {} };
+    message ??= `found ${b.file}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status, message })
+    body: JSON.stringify({ status, message, ...found ? { file: found } : {} })
   });
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, "NOT_FOUND", [`Run \`${PE} status --port ${st.port}\` to list requests`]);
   if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
@@ -3558,7 +3587,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--root .] [--editor-url vscode]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -3568,6 +3597,11 @@ var HELP = {
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
   --no-auth  no access token (purely local use only)
+  --root     project directory that \u2197 Open resolves source hints against (default: the cwd)
+  --editor-url  how \u2197 Open reaches the editor from a browser on another machine (tailscale):
+             vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
+             ({host} = user@<tailscale name>; the editor connects back over SSH).
+             A browser on localhost opens the file in the editor on this machine instead
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
@@ -3604,7 +3638,7 @@ examples:
   Report a request back to the browser (shown as a toast). Run it once per request.
   If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
-  --open     open this project file in the user's editor first (answers a locate request)
+  --open     the project file you found (answers a locate request); the user gets Open / Copy
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
   ${PE} done r2 "need the new copy for the hero" --failed
