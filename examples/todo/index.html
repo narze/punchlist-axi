@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todos - punchlist example</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 text-slate-800 antialiased">
+  <main class="mx-auto max-w-lg px-4 py-12 sm:py-20">
+    <header class="mb-8 text-center">
+      <h1 class="text-4xl font-bold tracking-tight text-indigo-600">Todos</h1>
+      <p class="mt-2 text-sm text-slate-500">A one-file example app for trying punchlist.</p>
+    </header>
+
+    <section class="rounded-2xl bg-white p-6 shadow-xl shadow-indigo-100 ring-1 ring-slate-200">
+      <form id="new-todo" class="flex gap-2">
+        <input id="new-title" type="text" placeholder="What needs doing?" autocomplete="off"
+          class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+        <button type="submit"
+          class="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700">Add</button>
+      </form>
+
+      <nav id="filters" class="mt-5 flex gap-1 rounded-lg bg-slate-100 p-1 text-sm">
+        <button data-filter="all" class="flex-1 rounded-md px-3 py-1.5">All</button>
+        <button data-filter="active" class="flex-1 rounded-md px-3 py-1.5">Active</button>
+        <button data-filter="done" class="flex-1 rounded-md px-3 py-1.5">Done</button>
+      </nav>
+
+      <ul id="list" class="mt-4 divide-y divide-slate-100"></ul>
+
+      <p id="empty" class="hidden py-8 text-center text-sm text-slate-400">Nothing here. Add a todo above.</p>
+
+      <footer class="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-xs text-slate-500">
+        <span id="count"></span>
+        <button id="clear-done" class="hover:text-rose-600">Clear done</button>
+      </footer>
+    </section>
+  </main>
+
+  <template id="item">
+    <li class="group flex items-center gap-3 py-3">
+      <input type="checkbox" class="size-4 rounded accent-indigo-600">
+      <span class="flex-1 text-sm"></span>
+      <button class="text-slate-300 opacity-0 hover:text-rose-500 group-hover:opacity-100" aria-label="Delete">✕</button>
+    </li>
+  </template>
+
+  <script>
+    const KEY = 'punchlist-example-todos'
+    let todos = JSON.parse(localStorage.getItem(KEY) ?? 'null') ?? [
+      { id: 1, title: 'Try punchlist on this page', done: false },
+      { id: 2, title: 'Click an element and leave a note', done: false },
+      { id: 3, title: 'Install Tailwind from a CDN', done: true },
+    ]
+    let filter = 'all'
+
+    const $ = (sel) => document.querySelector(sel)
+    const save = () => localStorage.setItem(KEY, JSON.stringify(todos))
+
+    function render() {
+      const shown = todos.filter((t) => filter === 'all' || (filter === 'done') === t.done)
+      const list = $('#list')
+      list.replaceChildren(...shown.map((t) => {
+        const li = $('#item').content.firstElementChild.cloneNode(true)
+        const [box, title, del] = li.children
+        box.checked = t.done
+        title.textContent = t.title
+        title.classList.toggle('line-through', t.done)
+        title.classList.toggle('text-slate-400', t.done)
+        box.onchange = () => { t.done = box.checked; save(); render() }
+        del.onclick = () => { todos = todos.filter((x) => x !== t); save(); render() }
+        return li
+      }))
+      $('#empty').classList.toggle('hidden', shown.length > 0)
+      const left = todos.filter((t) => !t.done).length
+      $('#count').textContent = `${left} item${left === 1 ? '' : 's'} left`
+      for (const b of $('#filters').children) {
+        const on = b.dataset.filter === filter
+        b.classList.toggle('bg-white', on)
+        b.classList.toggle('shadow-sm', on)
+        b.classList.toggle('font-medium', on)
+        b.classList.toggle('text-slate-500', !on)
+      }
+    }
+
+    $('#new-todo').onsubmit = (e) => {
+      e.preventDefault()
+      const title = $('#new-title').value.trim()
+      if (!title) return
+      todos.push({ id: Date.now(), title, done: false })
+      $('#new-title').value = ''
+      save(); render()
+    }
+    $('#filters').onclick = (e) => {
+      if (e.target.dataset.filter) { filter = e.target.dataset.filter; render() }
+    }
+    $('#clear-done').onclick = () => { todos = todos.filter((t) => !t.done); save(); render() }
+
+    render()
+  </script>
+</body>
+</html>
