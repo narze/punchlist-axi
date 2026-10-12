@@ -2,7 +2,7 @@
 // "change this element" requests for whatever coding agent is running the loop.
 // TypeScript source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
-//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--root .] [--editor-url vscode]   (background)
+//   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
 //   punchlist wait  [--port 4000] [--timeout 540] [--json]
 //   punchlist done  <id> ["summary"] [--failed] [--port 4000]
@@ -38,7 +38,7 @@ const COOKIE = '__pe_auth';
 type Command = 'start' | 'serve' | 'wait' | 'show' | 'done' | 'status' | 'stop' | 'setup';
 type FlagSpec = Record<string, 'v' | 'b'>; // v = takes a value, b = boolean
 
-const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 'v', root: 'v', 'editor-url': 'v' };
+const SERVE_FLAGS: FlagSpec = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', 'no-tailscale': 'b', token: 'v', root: 'v', 'editor-url': 'v' };
 const FLAGS: Record<Command, FlagSpec> = {
   start: SERVE_FLAGS, serve: SERVE_FLAGS,
   wait: { port: 'v', timeout: 'v', json: 'b' },
@@ -52,12 +52,13 @@ const FLAGS: Record<Command, FlagSpec> = {
 // Every flag of every command; parseArgs only lets through the ones in FLAGS[cmd].
 interface Args {
   _: string[];
-  target?: string; port?: string; host?: string; 'no-auth'?: true; token?: string; root?: string; 'editor-url'?: string;
+  target?: string; port?: string; host?: string; 'no-auth'?: true; 'no-tailscale'?: true; token?: string; root?: string; 'editor-url'?: string;
   timeout?: string; json?: true; full?: true; failed?: true; open?: string; project?: true; remove?: true;
 }
 
 // Written by `serve` to STATE_DIR/<port>.json; every other command finds the proxy through it.
-interface ProxyState { port: number; host: string; target: string; token: string; auth: boolean; pid: number; cwd?: string }
+// tailnet = this machine's Tailscale name, set when the proxy also listens on the tailnet.
+interface ProxyState { port: number; host: string; target: string; token: string; auth: boolean; pid: number; cwd?: string; tailnet?: string }
 
 const errorMessage = (e: unknown) => e instanceof Error ? e.message : String(e);
 
@@ -173,10 +174,13 @@ function stripCookie(header: string | undefined, name: string) {
   return kept.length ? kept.join('; ') : undefined;
 }
 
-function tailscaleName() {
+// This machine's tailnet name and addresses, when tailscale is installed and connected.
+function tailscaleSelf() {
   try {
     const out = execFileSync('tailscale', ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, encoding: 'utf8' });
-    return (JSON.parse(out) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, '') ?? null;
+    const j = JSON.parse(out) as { BackendState?: string; Self?: { DNSName?: string; TailscaleIPs?: string[] } };
+    const name = j.Self?.DNSName?.replace(/\.$/, '');
+    return j.BackendState === 'Running' && name ? { name, ips: j.Self?.TailscaleIPs ?? [] } : null;
   } catch { return null; }
 }
 
@@ -186,20 +190,15 @@ function alive(pid: number) { try { process.kill(pid, 0); return true; } catch {
 
 function printInfo(st: ProxyState) {
   const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
   console.log(`punchlist: proxying ${st.target}`);
   console.log(`  Local:     http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`);
-  if (ts) {
-    console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
-    console.log(`             https://${ts}${authPath}`);
-  }
+  if (st.tailnet) console.log(`  Tailscale: http://${st.tailnet}:${st.port}${authPath}`);
   console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 
 function links(st: ProxyState) {
   const authPath = !st.auth ? '/' : `${PREFIX}/auth?token=${st.token}`;
-  const ts = tailscaleName();
-  return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(ts ? { tailscale: `https://${ts}${authPath}` } : {}) };
+  return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(st.tailnet ? { tailscale: `http://${st.tailnet}:${st.port}${authPath}` } : {}) };
 }
 
 function startOutput(st: ProxyState, state: string) {
@@ -210,7 +209,7 @@ function startOutput(st: ProxyState, state: string) {
     help: [
       'Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie',
       'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor (⧉ Copy copies path:line); when no file is known, 🔎 Locate asks you to find it',
-      ...(l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : []),
+      ...(l.tailscale ? ['Also paste the tailscale link: it opens on the user\'s phone or any other device in their tailnet'] : []),
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`,
     ],
   };
@@ -279,6 +278,11 @@ function cmdServe(args: Args) {
   const editorUrl = editorUrlTemplate(args['editor-url']);
   let sshHost: string | null = null; // looked up on first use: tailscale status takes a moment
   const noAuth = args['no-auth'] === true;
+  // Also listen on this machine's Tailscale addresses, so other devices in the tailnet (a phone)
+  // reach the proxy at http://<name>.ts.net:<port>. Not with --no-auth or an explicit --host.
+  const wildcard = ['0.0.0.0', '::'].includes(host);
+  const ts = noAuth || args['no-tailscale'] || (args.host != null && !wildcard) ? null : tailscaleSelf();
+  const tailnetIps = ts && !wildcard ? ts.ips : [];
   const token = args.token ?? crypto.randomBytes(12).toString('base64url');
   const targetPort = Number(target.port) || (target.protocol === 'https:' ? 443 : 80);
   const lib = target.protocol === 'https:' ? https : http;
@@ -454,7 +458,7 @@ function cmdServe(args: Args) {
     json(res, 404, { error: 'not found' });
   }
 
-  const server = http.createServer((req, res) => {
+  const handler = (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get('next');
@@ -470,10 +474,10 @@ function cmdServe(args: Args) {
     }
     if (url.pathname.startsWith(PREFIX + '/')) { handleApi(req, res, url).catch((e: unknown) => { json(res, 500, { error: errorMessage(e) }); }); return; }
     proxy(req, res);
-  });
+  };
 
   // WebSockets (Vite HMR, ActionCable, LiveReload…): raw pipe after rewriting headers.
-  server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+  const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     if (!authed(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n'); return; }
     const opts = { host: target.hostname.replace(/^\[|\]$/g, ''), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
     const up = target.protocol === 'https:' ? tls.connect(opts, onConnect) : net.connect(opts, onConnect);
@@ -487,7 +491,7 @@ function cmdServe(args: Args) {
     }
     up.on('error', () => socket.destroy());
     socket.on('error', () => up.destroy());
-  });
+  };
 
   // Resolves a source file from a hint and, when launch is set, opens it in the editor on this machine
   // (the browser is on it too). Either way it returns the editor URL a browser on another machine opens instead.
@@ -500,7 +504,7 @@ function cmdServe(args: Args) {
     try { real = fs.realpathSync(abs); } catch { return { status: 404, error: `${file} not found in ${root}` }; }
     if (!inside(fs.realpathSync(root), real)) return { status: 403, error: 'file is outside the project' };
     const rel = path.relative(root, abs);
-    sshHost ??= `${os.userInfo().username}@${tailscaleName() ?? os.hostname()}`;
+    sshHost ??= `${os.userInfo().username}@${(ts ?? tailscaleSelf())?.name ?? os.hostname()}`;
     const vars: Record<string, string> = { host: sshHost, abs, file: rel, line: String(line || 1), col: String(column || 1) };
     const url = editorUrl.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
     if (launch) {
@@ -514,17 +518,40 @@ function cmdServe(args: Args) {
 
   function log(msg: string) { console.log(`[punchlist ${new Date().toLocaleTimeString()}] ${msg}`); }
 
-  server.listen(port, host, () => {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
-    const st: ProxyState = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
-    fs.writeFileSync(statePath(port), JSON.stringify(st));
-    printInfo(st);
+  // One server per address, all on the same port.
+  const listenOn = (h: string) => new Promise<http.Server | NodeJS.ErrnoException>(resolve => {
+    const s = http.createServer(handler).on('upgrade', onUpgrade).once('error', resolve);
+    s.listen(port, h, () => { s.off('error', resolve); resolve(s); });
   });
   // runs detached with output in the log file, so fail there (start reads it back)
-  server.on('error', (e: NodeJS.ErrnoException) => {
-    if (e.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); server.listen(++port, host); return; }
-    console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1);
+  const fail = (msg: string): never => { console.error(msg); process.exit(1); };
+  async function bind() {
+    for (;;) {
+      const main = await listenOn(host);
+      if (!(main instanceof http.Server)) {
+        if (main.code === 'EADDRINUSE' && auto && port < lastPort) { log(`port ${port} is in use, trying ${port + 1}`); port++; continue; }
+        return fail(main.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : main.message);
+      }
+      const servers = [main];
+      let clash = false;
+      for (const ip of tailnetIps) {
+        const s = await listenOn(ip);
+        if (s instanceof http.Server) servers.push(s);
+        else if (s.code === 'EADDRINUSE') { clash = true; break; }
+        else log(`not listening on tailscale address ${ip}: ${s.code ?? s.message}`);
+      }
+      if (!clash) return servers.length > 1 || wildcard;
+      for (const s of servers) s.close();
+      if (auto && port < lastPort) { log(`port ${port} is in use on the tailnet, trying ${port + 1}`); port++; continue; }
+      return fail(`port ${port} is in use on the tailscale address (pick another with --port, or pass --no-tailscale)`);
+    }
+  }
+  void bind().then(onTailnet => {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
+    const st: ProxyState = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd(), ...(ts && onTailnet ? { tailnet: ts.name } : {}) };
+    fs.writeFileSync(statePath(port), JSON.stringify(st));
+    printInfo(st);
   });
 
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
@@ -752,7 +779,7 @@ Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 
 const HELP: Partial<Record<string, string>> = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--root .] [--editor-url vscode]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--no-tailscale] [--root .] [--editor-url vscode]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -761,12 +788,17 @@ const HELP: Partial<Record<string, string>> = {
   --port     proxy port, strict (default: 4000, or the next free port when it is busy;
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
-  --no-auth  no access token (purely local use only)
+  --no-auth  no access token (purely local use only; never on the tailnet)
+  --no-tailscale  do not listen on the tailnet
   --root     project directory that ↗ Open resolves source hints against (default: the cwd)
   --editor-url  how ↗ Open reaches the editor from a browser on another machine (tailscale):
              vscode (default), cursor, windsurf, zed, or a template with {host} {abs} {line} {col}
              ({host} = user@<tailscale name>; the editor connects back over SSH).
              A browser on localhost opens the file in the editor on this machine instead
+  When tailscale is installed and connected, the proxy also listens on this machine's tailnet
+  addresses and prints a tailscale link (http://<machine>.<tailnet>.ts.net:<port>) that opens on
+  the user's phone. Only tailnet devices reach it, and the link token is still required.
+  Never use \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
