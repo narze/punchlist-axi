@@ -6,7 +6,7 @@
   import type * as EditorModule from './editor.ts';
   import { bestHint, describe, elementContext, fileHint, markdown, here, type Box, type Draft, type LiveNote, type Target, type Toast } from './context.ts';
   import { freezePage, setPickMode, watchPage } from './page.ts';
-  import { autoReload, editMode, restore, save, setEditMode, withoutEls } from './storage.ts';
+  import { autoReload, editorBox, restore, save, setEditorBox, withoutEls } from './storage.ts';
   import EditorPanel from './EditorPanel.svelte';
   import NotePanel from './NotePanel.svelte';
   import Overlay from './Overlay.svelte';
@@ -26,7 +26,7 @@
   let chip = $state.raw<{ el: Element; text: string; left: number; top: number } | null>(null);
   let toasts = $state.raw<Toast[]>([]);
   let busy = $state(0);
-  let editing = $state(editMode());
+  let box = $state.raw(editorBox()); // where the editor was moved and sized
   // the open file: `src` once loaded; `conflict` is the etag on disk after a refused save; `discarding` = Close was pressed once with changes
   interface OpenFile { ref: FileRef; src: SourceFile | null; dirty: boolean; saving: boolean; conflict: string | null; discarding: boolean }
   let file = $state.raw<OpenFile | null>(null);
@@ -89,21 +89,17 @@
     } catch (e) { toast(`❌ Open failed: ${errorMessage(e)}`); }
   }
   // no file in the hints (e.g. JSX built without source info): the agent finds it and runs `done --open`
-  async function locate() {
+  // `edit`: the agent's answer opens in the editor here, not the desktop one
+  async function locate(edit: boolean) {
     if (!draft) return;
     const { elements: [el], ...n } = snapshot(draft);
     try {
-      const payload: Payload = { kind: 'locate', ...(editing ? { edit: true } : {}), notes: [{ ...n, comment: 'Find the source file of this element', elements: el ? [el] : [] }] };
+      const payload: Payload = { kind: 'locate', ...(edit ? { edit: true } : {}), notes: [{ ...n, comment: 'Find the source file of this element', elements: el ? [el] : [] }] };
       await post('/requests', payload);
-      toast(`🔎 Asked the agent to find this file${editing ? ' for the editor here' : ''}`, { ms: 2500 });
+      toast(`🔎 Asked the agent to find this file${edit ? ' to edit here' : ''}`, { ms: 2500 });
     } catch (e) { toast(`❌ Locate failed: ${errorMessage(e)}`); }
   }
   // ---------------------------------------------------------------- in-browser editor
-  function setEditing(on: boolean) {
-    editing = on;
-    setEditMode(on);
-    toast(on ? '✎ Edit mode on: ✎ Edit in a note opens its file here' : '✎ Edit mode off', { ms: 2500 });
-  }
   // CodeMirror is its own bundle, loaded on first use; a failed load is retried next time
   let editorModule: Promise<typeof EditorModule> | null = null;
   function loadEditor() {
@@ -263,22 +259,22 @@
     onpointerdown={e => { e.preventDefault(); }} onclick={pickSelection}>💬 Annotate</button>
 {/if}
 {#if draft}
-  <NotePanel {draft} editMode={editing} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={openFile}
-    onedit={() => { if (draft?.file) void openEditor(draft.file); }} onlocate={locate} onparent={parent} onchild={child} />
+  <NotePanel {draft} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={openFile}
+    onedit={() => { if (draft?.file) void openEditor(draft.file); else void locate(true); }} onlocate={() => { void locate(false); }} onparent={parent} onchild={child} />
 {/if}
 {#if file}
   <EditorPanel file={file.src?.file ?? file.ref.file} ready={file.src !== null} dirty={file.dirty} saving={file.saving}
     conflict={file.conflict !== null} discarding={file.discarding} bind:host={codeHost}
+    {box} onbox={(b: Box | null) => { box = b; setEditorBox(b); }}
     onsave={() => { void saveFile(); }} onclose={requestClose} onload={() => { void reloadFile(); }}
     onoverwrite={() => { void saveFile(file?.conflict ?? undefined); }} />
 {/if}
 {#if trayOpen}
   <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send} />
 {/if}
-<Toolbar {picking} {frozen} {editing} count={notes.length} {busy}
+<Toolbar {picking} {frozen} count={notes.length} {busy}
   onpick={() => { cancelDraft(); setPicking(!picking); }}
   onfreeze={() => { setFrozen(!frozen); }}
-  onedit={() => { setEditing(!editing); }}
   ontray={() => { cancelDraft(); trayOpen = !trayOpen; }}
   onsend={send} />
 

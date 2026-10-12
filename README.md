@@ -23,7 +23,7 @@ Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --
 
 The proxy listens on port 4000, or on the next free port when 4000 is busy (like Vite). Running `start` again for the same dev server reuses its proxy. Pass `--port` to require one port.
 
-Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ turns on edit mode (see below). 🗒 lists your notes; notes survive reloads until sent.
+Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ Edit in the note panel edits the source in the page (see below). 🗒 lists your notes; notes survive reloads until sent.
 
 Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
@@ -48,7 +48,7 @@ When the hints name no file (only a component name, or nothing), the panel shows
 
 ## Edit in the page
 
-Press ✎ in the toolbar to turn on edit mode (remembered per browser). When the hint names a file, the note panel then shows **✎ Edit** next to ↗ Open: the file opens in a code editor ([CodeMirror](https://codemirror.net)) right in the page, at the hinted line. Save with the button or ⌘/Ctrl+S; the proxy writes the file on the dev machine, and your dev server's reload (Vite HMR, or Reload for Rails templates) shows the change. 🔎 Locate in edit mode opens the file the agent finds here instead of in your desktop editor.
+**✎ Edit** in the note panel opens the file in a code editor ([CodeMirror](https://codemirror.net)) right in the page, at the hinted line. Save with the button or ⌘/Ctrl+S; the proxy writes the file on the dev machine, and your dev server's reload (Vite HMR, or Reload for Rails templates) shows the change. When the hints name no file, ✎ Edit asks your agent to find it (like 🔎 Locate) and the answer opens here. Drag the editor's header to move it and its corner to resize it (remembered per browser); double-click the header to put it back.
 
 If the file changed on disk since you opened it (say, your agent edited it), Save is refused and you choose **Load from disk** or **Overwrite**. The editor (about 200 KB gzipped) loads only the first time you open a file.
 

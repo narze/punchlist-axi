@@ -2,8 +2,8 @@
 <script lang="ts">
   import type { Draft } from './context.ts';
 
-  let { draft, editMode, comment = $bindable(), field = $bindable(), onadd, oncancel, onopen, onedit, onlocate, onparent, onchild }: {
-    draft: Draft; editMode: boolean; comment: string; field: HTMLTextAreaElement | undefined;
+  let { draft, comment = $bindable(), field = $bindable(), onadd, oncancel, onopen, onedit, onlocate, onparent, onchild }: {
+    draft: Draft; comment: string; field: HTMLTextAreaElement | undefined;
     onadd: () => void; oncancel: () => void; onopen: () => void; onedit: () => void; onlocate: () => void; onparent: () => void; onchild: () => void;
   } = $props();
 
@@ -17,10 +17,10 @@
     <div class="hint">{draft.hint}</div>
     {#if draft.file}
       <button class="open" type="button" title="Open this file in your editor" onclick={onopen}>↗ Open</button>
-      {#if editMode}<button class="edit" type="button" title="Edit this file here" onclick={onedit}>✎ Edit</button>{/if}
+      <button class="edit" type="button" title="Edit this file here" onclick={onedit}>✎ Edit</button>
     {:else}
-      <button class="locate" type="button" title={editMode ? 'Ask the agent to find this file and open it here' : 'Ask the agent to find this file and open it in your editor'}
-        onclick={onlocate}>🔎 Locate</button>
+      <button class="locate" type="button" title="Ask the agent to find this file and open it in your editor" onclick={onlocate}>🔎 Locate</button>
+      <button class="edit" type="button" title="Ask the agent to find this file and open it here" onclick={onedit}>✎ Edit</button>
     {/if}
   </div>
   <textarea bind:this={field} bind:value={comment} placeholder="What should change? (⌘/Ctrl+Enter to add)"

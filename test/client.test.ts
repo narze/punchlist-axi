@@ -129,11 +129,7 @@ assert.ok(shown('.panel'), 'a locate result never reloads the page (the draft wo
 w.localStorage.removeItem('__pe_autoreload');
 q('.cancel').click();
 
-// Edit mode: ✎ Edit opens the hinted file in the page, saves go back with the etag they were read with
-assert.ok(!shown('.edit'), 'no Edit button outside edit mode');
-tool('edit'); await sleep(0);
-assert.equal(q('[data-act="edit"]').getAttribute('aria-pressed'), 'true');
-assert.equal(w.localStorage.getItem('__pe_edit'), '1', 'edit mode is remembered per browser');
+// ✎ Edit opens the hinted file in the page, saves go back with the etag they were read with
 io.disk = { file: 'src/routes/+page.svelte', content: '<h1>hi</h1>\n', etag: 'e0' };
 tap(sv); type('my note');
 q('.edit').click(); await sleep(10);
@@ -142,6 +138,25 @@ const ed = () => must(io.editor);
 assert.equal(ed().opts.line, 4); assert.equal(ed().opts.column, 2, 'opens at the hinted line and column');
 assert.equal(ed().opts.root, R, 'CodeMirror lives in our shadow root');
 assert.match(q('.editor .file').textContent, /src\/routes\/\+page\.svelte/);
+// move by the header, resize by the corner (jsdom has no layout: the sheet reports its inline box, 500×400 at 0,0 before that)
+const sheet = q('.editor'), px = (v: string, d: number) => v ? parseFloat(v) : d;
+sheet.getBoundingClientRect = () => ({ left: px(sheet.style.left, 0), top: px(sheet.style.top, 0), width: px(sheet.style.width, 500), height: px(sheet.style.height, 400) }) as DOMRect;
+const drag = (el: HTMLElement, dx: number, dy: number) => {
+  el.setPointerCapture = () => undefined;
+  const at = (t: string, x: number, y: number) => new w.MouseEvent(t, { bubbles: true, button: 0, clientX: x, clientY: y });
+  el.dispatchEvent(at('pointerdown', 0, 0)); el.dispatchEvent(at('pointermove', dx, dy)); el.dispatchEvent(at('pointerup', dx, dy));
+};
+drag(q('.editor .head'), 100, 50); await sleep(0);
+assert.equal(q('.editor').style.left, '100px'); assert.equal(q('.editor').style.top, '50px', 'the header moves the editor');
+drag(q('.editor .grip'), -100, -150); await sleep(0);
+assert.equal(q('.editor').style.width, '400px'); assert.equal(q('.editor').style.height, '250px', 'the corner resizes it');
+assert.equal(q('.editor').style.left, '100px', 'in place');
+drag(q('.editor .grip'), -1000, -1000); await sleep(0);
+assert.equal(q('.editor').style.width, '280px', 'not smaller than a usable editor');
+assert.deepEqual(JSON.parse(w.localStorage.getItem('__pe_editor_box') ?? 'null'), { left: 100, top: 50, width: 280, height: 180 }, 'remembered per browser');
+q('.editor .file').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true })); await sleep(0);
+assert.equal(q('.editor').style.left, '', 'double-click on the header puts it back');
+assert.equal(w.localStorage.getItem('__pe_editor_box'), null);
 assert.equal((q('.save') as HTMLButtonElement).disabled, true, 'nothing to save yet');
 let appKeys = 0; d.addEventListener('keydown', () => { appKeys++; });
 q('.editor .code').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'a', bubbles: true, composed: true }));
@@ -176,9 +191,9 @@ q('.close').click(); await sleep(0);
 assert.ok(!shown('.editor') && ed().destroyed, 'the second one discards');
 assert.equal(field().value, 'my note', 'the note being written is still there');
 assert.equal(q('[data-act="pick"]').getAttribute('aria-pressed'), 'true', 'annotate mode is back on after the editor (it blocks touch scrolling, so it was off)');
-// Locate in edit mode: the agent's answer opens here
+// no file in the hints: ✎ Edit asks the agent to locate it, and the answer opens here
 tap(comp); io.sent = undefined; io.editor = undefined;
-q('.locate').click(); await sleep(10);
+q('.edit').click(); await sleep(10);
 assert.equal(sent().edit, true, 'the agent learns the file is for the editor here');
 io.disk = { file: 'src/PriceTag.vue', content: '<template/>', etag: 'v1' };
 const found: ServerEvent = { type: 'update', item: { id: 'r3', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', open: { file: 'src/PriceTag.vue', line: 3 } } };
@@ -187,7 +202,5 @@ await sleep(10);
 assert.equal(io.read, 'src/PriceTag.vue');
 assert.equal(ed().opts.line, 3);
 q('.close').click(); q('.cancel').click();
-tool('edit');
-assert.equal(w.localStorage.getItem('__pe_edit'), '0');
 assert.deepEqual(errors, [], 'no runtime errors');
 console.log('✓ client.js: pick, freeze, text selection, persistence, send payload, open in editor, agent locate, edit in the page');

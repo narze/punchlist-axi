@@ -1,15 +1,14 @@
-<!-- The pill in the corner: annotate, pause animations, edit mode, notes tray, send. -->
+<!-- The pill in the corner: annotate, pause animations, notes tray, send. -->
 <script lang="ts">
-  const { picking, frozen, editing, count, busy, onpick, onfreeze, onedit, ontray, onsend }: {
-    picking: boolean; frozen: boolean; editing: boolean; count: number; busy: number;
-    onpick: () => void; onfreeze: () => void; onedit: () => void; ontray: () => void; onsend: () => void;
+  const { picking, frozen, count, busy, onpick, onfreeze, ontray, onsend }: {
+    picking: boolean; frozen: boolean; count: number; busy: number;
+    onpick: () => void; onfreeze: () => void; ontray: () => void; onsend: () => void;
   } = $props();
 </script>
 
 <div class="tools">
   <button data-act="pick" aria-pressed={picking} title="Annotate (Alt+Shift+E)" aria-label="Annotate" onclick={onpick}>◎</button>
   <button data-act="freeze" class="freeze" aria-pressed={frozen} title="Pause animations (Alt+Shift+P)" aria-label="Pause animations" onclick={onfreeze}>⏸</button>
-  <button data-act="edit" class="editmode" aria-pressed={editing} title="Edit mode: edit source files in the page" aria-label="Edit mode" onclick={onedit}>✎</button>
   <button data-act="tray" aria-label="Notes" onclick={ontray}>🗒 <span class="count">{count}</span>{#if busy}<span class="busy">⏳{busy}</span>{/if}</button>
   <button data-act="send" class="go" disabled={!count} onclick={onsend}>{count ? `Send ${count}` : 'Send'}</button>
 </div>
@@ -21,7 +20,6 @@
     font: 600 15px ui-sans-serif, system-ui, sans-serif; cursor: pointer; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; }
   button[aria-pressed="true"] { background: #7c3aed; }
   .freeze[aria-pressed="true"] { background: #f59e0b; color: #000; }
-  .editmode[aria-pressed="true"] { background: #059669; }
   .count { font-size: 12px; background: #27272a; border-radius: 999px; padding: 1px 6px; }
   .busy { font-size: 12px; background: #f59e0b; color: #000; border-radius: 999px; padding: 1px 6px; }
   .go { background: #7c3aed; padding: 0 14px; }
