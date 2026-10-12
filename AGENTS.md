@@ -1,6 +1,6 @@
 # punchlist - notes for agents
 
-See README.md for what this is. Layout: `src/cli.mjs` (proxy + CLI source, uses `axi-sdk-js`; `pnpm build` bundles it into `scripts/punchlist.mjs`, which is committed and must never be edited by hand - `pnpm test` rebuilds first), `scripts/client.js` (picker injected into pages, shadow DOM), `test/` (`pnpm test`: proxy e2e against a fake Rails-like server, client flows in jsdom with stubbed layout). The SKILL.md files are thin stubs; the CLI (`--help`, next-step lines) is the source of truth for agent guidance.
+See README.md for what this is. Layout: `src/cli.mjs` (proxy + CLI source, uses `axi-sdk-js`; `pnpm build` bundles `src/punchlist.mjs` (entry: `--version` fast path) into `scripts/punchlist.mjs` and `src/cli.mjs` into `scripts/punchlist-cli.mjs`; both are committed and must never be edited by hand - `pnpm test` rebuilds first), `scripts/client.js` (picker injected into pages, shadow DOM), `test/` (`pnpm test`: proxy e2e against a fake Rails-like server, client flows in jsdom with stubbed layout). The SKILL.md files are thin stubs; the CLI (`--help`, next-step lines) is the source of truth for agent guidance.
 
 ## Hard requirements
 

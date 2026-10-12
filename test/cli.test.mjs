@@ -1,6 +1,8 @@
 // AXI contract of the CLI: structured errors on stdout, exit codes 0/1/2, unknown flags rejected.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,6 +14,14 @@ let ok = 0; const t = (name, fn) => { fn(); ok++; console.log('✓', name); };
 t('--version prints the bare version', () => {
   const r = run('--version');
   assert.equal(r.code, 0); assert.equal(r.out, '0.1.0\n');
+});
+t('--version is answered before the CLI loads (close to an empty-module floor)', () => {
+  const time = args => { const s = performance.now(); spawnSync(process.execPath, args); return performance.now() - s; };
+  const median = args => { time(args); const xs = Array.from({ length: 9 }, () => time(args)).sort((a, b) => a - b); return xs[4]; };
+  // floor = an empty ES module: loading any .mjs bin costs this much (much more than `node -e` on node 18)
+  const empty = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pl-')), 'empty.mjs'); fs.writeFileSync(empty, '');
+  const floor = median([empty]), version = median([CLI, '--version']), full = median([CLI, 'stop', '--port', FREE]);
+  assert.ok(version - floor < (full - floor) / 2, `--version ${version.toFixed(1)}ms vs floor ${floor.toFixed(1)}ms vs full CLI ${full.toFixed(1)}ms`);
 });
 t('no args shows the home view, not a manual', () => {
   const r = run();

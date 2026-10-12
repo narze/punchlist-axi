@@ -1,0 +1,1857 @@
+#!/usr/bin/env node
+// Generated from src/ by `pnpm build` - do not edit.
+
+// src/cli.mjs
+import http from "node:http";
+import https from "node:https";
+import net from "node:net";
+import tls from "node:tls";
+import zlib from "node:zlib";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+import { execFileSync, spawn as spawn2 } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/cli.js
+import { basename as basename2 } from "node:path";
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/errors.js
+var AxiError = class extends Error {
+  code;
+  suggestions;
+  constructor(message, code, suggestions = []) {
+    super(message);
+    this.code = code;
+    this.suggestions = suggestions;
+    this.name = "AxiError";
+  }
+};
+function exitCodeForError(error) {
+  if (error instanceof AxiError && error.code === "VALIDATION_ERROR") {
+    return 2;
+  }
+  return 1;
+}
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/output.js
+import { homedir } from "node:os";
+
+// node_modules/.pnpm/@toon-format+toon@2.3.1/node_modules/@toon-format/toon/dist/index.mjs
+var NULL_LITERAL = "null";
+var DELIMITERS = {
+  comma: ",",
+  tab: "	",
+  pipe: "|"
+};
+var DEFAULT_DELIMITER = DELIMITERS.comma;
+function escapeString(value) {
+  return value.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`).replace(/\n/g, `\\n`).replace(/\r/g, `\\r`).replace(/\t/g, `\\t`).replace(/[\u0000-\u001F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+function isBooleanOrNullLiteral(token) {
+  return token === "true" || token === "false" || token === "null";
+}
+function setOwnProperty(target, key, value) {
+  if (key === "__proto__") {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
+    return;
+  }
+  target[key] = value;
+}
+function normalizeValue(value) {
+  if (value === null) return null;
+  if (typeof value === "object" && value !== null && "toJSON" in value && typeof value.toJSON === "function") {
+    const next = value.toJSON();
+    if (next !== value) return normalizeValue(next);
+  }
+  if (typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (Object.is(value, -0)) return 0;
+    if (!Number.isFinite(value)) return null;
+    return value;
+  }
+  if (typeof value === "bigint") {
+    if (value >= Number.MIN_SAFE_INTEGER && value <= Number.MAX_SAFE_INTEGER) return Number(value);
+    return value.toString();
+  }
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(normalizeValue);
+  if (value instanceof Set) return Array.from(value).map(normalizeValue);
+  if (value instanceof Map) return Object.fromEntries(Array.from(value, ([k, v]) => [String(k), normalizeValue(v)]));
+  if (isPlainObject(value)) {
+    const encodedValues = {};
+    for (const key in value) if (Object.hasOwn(value, key)) setOwnProperty(encodedValues, key, normalizeValue(value[key]));
+    return encodedValues;
+  }
+  return null;
+}
+function isJsonPrimitive(value) {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+function isJsonArray(value) {
+  return Array.isArray(value);
+}
+function isJsonObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isEmptyObject(value) {
+  return Object.keys(value).length === 0;
+}
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === null || prototype === Object.prototype;
+}
+function isArrayOfPrimitives(value) {
+  return value.length === 0 || value.every((item) => isJsonPrimitive(item));
+}
+function isArrayOfArrays(value) {
+  return value.length === 0 || value.every((item) => isJsonArray(item));
+}
+function isArrayOfObjects(value) {
+  return value.length === 0 || value.every((item) => isJsonObject(item));
+}
+var NUMERIC_LIKE_PATTERN = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+var LEADING_ZERO_PATTERN = /^0\d+$/;
+function isValidUnquotedKey(key) {
+  return /^[A-Z_][\w.]*$/i.test(key);
+}
+function isIdentifierSegment(key) {
+  return /^[A-Z_]\w*$/i.test(key);
+}
+function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
+  if (!value) return false;
+  if (value !== value.trim()) return false;
+  if (isBooleanOrNullLiteral(value) || isNumericLike(value)) return false;
+  if (value.includes(":")) return false;
+  if (value.includes('"') || value.includes("\\")) return false;
+  if (/[[\]{}]/.test(value)) return false;
+  if (/[\u0000-\u001F]/.test(value)) return false;
+  if (value.includes(delimiter)) return false;
+  if (value.startsWith("-")) return false;
+  return true;
+}
+function isNumericLike(value) {
+  return NUMERIC_LIKE_PATTERN.test(value) || LEADING_ZERO_PATTERN.test(value);
+}
+function tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, flattenDepth) {
+  if (options.keyFolding !== "safe") return;
+  if (!isJsonObject(value)) return;
+  const { segments, tail, leafValue } = collectSingleKeyChain(key, value, flattenDepth ?? options.flattenDepth);
+  if (segments.length < 2) return;
+  if (!segments.every((seg) => isIdentifierSegment(seg))) return;
+  const foldedKey = buildFoldedKey(segments);
+  const absolutePath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
+  if (siblings.includes(foldedKey)) return;
+  if (rootLiteralKeys && rootLiteralKeys.has(absolutePath)) return;
+  return {
+    foldedKey,
+    remainder: tail,
+    leafValue,
+    segmentCount: segments.length
+  };
+}
+function collectSingleKeyChain(startKey, startValue, maxDepth) {
+  const segments = [startKey];
+  let currentValue = startValue;
+  while (segments.length < maxDepth) {
+    if (!isJsonObject(currentValue)) break;
+    const keys = Object.keys(currentValue);
+    if (keys.length !== 1) break;
+    const nextKey = keys[0];
+    const nextValue = currentValue[nextKey];
+    segments.push(nextKey);
+    currentValue = nextValue;
+  }
+  if (!isJsonObject(currentValue) || isEmptyObject(currentValue)) return {
+    segments,
+    tail: void 0,
+    leafValue: currentValue
+  };
+  return {
+    segments,
+    tail: currentValue,
+    leafValue: currentValue
+  };
+}
+function buildFoldedKey(segments) {
+  return segments.join(".");
+}
+function encodePrimitive(value, delimiter) {
+  if (value === null) return NULL_LITERAL;
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "number") return String(value);
+  return encodeStringLiteral(value, delimiter);
+}
+function encodeStringLiteral(value, delimiter = DEFAULT_DELIMITER) {
+  if (isSafeUnquoted(value, delimiter)) return value;
+  return `"${escapeString(value)}"`;
+}
+function encodeKey(key) {
+  if (isValidUnquotedKey(key)) return key;
+  return `"${escapeString(key)}"`;
+}
+function encodeAndJoinPrimitives(values, delimiter = DEFAULT_DELIMITER) {
+  return values.map((v) => encodePrimitive(v, delimiter)).join(delimiter);
+}
+function formatHeader(length, options) {
+  const key = options?.key;
+  const fields = options?.fields;
+  const delimiter = options?.delimiter ?? ",";
+  let header = "";
+  if (key != null) header += encodeKey(key);
+  header += `[${length}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
+  if (fields) {
+    const quotedFields = fields.map((f) => encodeKey(f));
+    header += `{${quotedFields.join(delimiter)}}`;
+  }
+  header += ":";
+  return header;
+}
+function* encodeJsonValue(value, options, depth) {
+  if (isJsonPrimitive(value)) {
+    const encodedPrimitive = encodePrimitive(value, options.delimiter);
+    if (encodedPrimitive !== "") yield encodedPrimitive;
+    return;
+  }
+  if (isJsonArray(value)) yield* encodeArrayLines(void 0, value, depth, options);
+  else if (isJsonObject(value)) yield* encodeObjectLines(value, depth, options);
+}
+function* encodeObjectLines(value, depth, options, rootLiteralKeys, pathPrefix, remainingDepth) {
+  const keys = Object.keys(value);
+  if (depth === 0 && !rootLiteralKeys) rootLiteralKeys = new Set(keys.filter((k) => k.includes(".")));
+  const effectiveFlattenDepth = remainingDepth ?? options.flattenDepth;
+  for (const [key, val] of Object.entries(value)) yield* encodeKeyValuePairLines(key, val, depth, options, keys, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
+}
+function* encodeKeyValuePairLines(key, value, depth, options, siblings, rootLiteralKeys, pathPrefix, flattenDepth) {
+  const currentPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+  const effectiveFlattenDepth = flattenDepth ?? options.flattenDepth;
+  if (options.keyFolding === "safe" && siblings) {
+    const foldResult = tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
+    if (foldResult) {
+      const { foldedKey, remainder, leafValue, segmentCount } = foldResult;
+      const encodedFoldedKey = encodeKey(foldedKey);
+      if (remainder === void 0) {
+        if (isJsonPrimitive(leafValue)) {
+          yield indentedLine(depth, `${encodedFoldedKey}: ${encodePrimitive(leafValue, options.delimiter)}`, options.indent);
+          return;
+        } else if (isJsonArray(leafValue)) {
+          yield* encodeArrayLines(foldedKey, leafValue, depth, options);
+          return;
+        } else if (isJsonObject(leafValue) && isEmptyObject(leafValue)) {
+          yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
+          return;
+        }
+      }
+      if (isJsonObject(remainder)) {
+        yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
+        const remainingDepth = effectiveFlattenDepth - segmentCount;
+        const foldedPath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
+        yield* encodeObjectLines(remainder, depth + 1, options, rootLiteralKeys, foldedPath, remainingDepth);
+        return;
+      }
+    }
+  }
+  const encodedKey = encodeKey(key);
+  if (isJsonPrimitive(value)) yield indentedLine(depth, `${encodedKey}: ${encodePrimitive(value, options.delimiter)}`, options.indent);
+  else if (isJsonArray(value)) yield* encodeArrayLines(key, value, depth, options);
+  else if (isJsonObject(value)) {
+    yield indentedLine(depth, `${encodedKey}:`, options.indent);
+    if (!isEmptyObject(value)) yield* encodeObjectLines(value, depth + 1, options, rootLiteralKeys, currentPath, effectiveFlattenDepth);
+  }
+}
+function* encodeArrayLines(key, value, depth, options) {
+  if (value.length === 0) {
+    yield indentedLine(depth, key != null ? `${encodeKey(key)}: []` : "[]", options.indent);
+    return;
+  }
+  if (isArrayOfPrimitives(value)) {
+    yield indentedLine(depth, encodeInlineArrayLine(value, options.delimiter, key), options.indent);
+    return;
+  }
+  if (isArrayOfArrays(value)) {
+    if (value.every((arr) => isArrayOfPrimitives(arr))) {
+      yield* encodeArrayOfArraysAsListItemsLines(key, value, depth, options);
+      return;
+    }
+  }
+  if (isArrayOfObjects(value)) {
+    const header = extractTabularHeader(value);
+    if (header) yield* encodeArrayOfObjectsAsTabularLines(key, value, header, depth, options);
+    else yield* encodeMixedArrayAsListItemsLines(key, value, depth, options);
+    return;
+  }
+  yield* encodeMixedArrayAsListItemsLines(key, value, depth, options);
+}
+function* encodeArrayOfArraysAsListItemsLines(prefix, values, depth, options) {
+  yield indentedLine(depth, formatHeader(values.length, {
+    key: prefix,
+    delimiter: options.delimiter
+  }), options.indent);
+  for (const arr of values) if (isArrayOfPrimitives(arr)) {
+    const arrayLine = encodeInlineArrayLine(arr, options.delimiter);
+    yield indentedListItem(depth + 1, arrayLine, options.indent);
+  }
+}
+function encodeInlineArrayLine(values, delimiter, prefix) {
+  const header = formatHeader(values.length, {
+    key: prefix,
+    delimiter
+  });
+  const joinedValue = encodeAndJoinPrimitives(values, delimiter);
+  if (values.length === 0) return header;
+  return `${header} ${joinedValue}`;
+}
+function* encodeArrayOfObjectsAsTabularLines(prefix, rows, header, depth, options) {
+  yield indentedLine(depth, formatHeader(rows.length, {
+    key: prefix,
+    fields: header,
+    delimiter: options.delimiter
+  }), options.indent);
+  yield* writeTabularRowsLines(rows, header, depth + 1, options);
+}
+function extractTabularHeader(rows) {
+  if (rows.length === 0) return;
+  const firstRow = rows[0];
+  const firstKeys = Object.keys(firstRow);
+  if (firstKeys.length === 0) return;
+  if (isTabularArray(rows, firstKeys)) return firstKeys;
+}
+function isTabularArray(rows, header) {
+  for (const row of rows) {
+    if (Object.keys(row).length !== header.length) return false;
+    for (const key of header) {
+      if (!Object.hasOwn(row, key)) return false;
+      if (!isJsonPrimitive(row[key])) return false;
+    }
+  }
+  return true;
+}
+function* writeTabularRowsLines(rows, header, depth, options) {
+  for (const row of rows) yield indentedLine(depth, encodeAndJoinPrimitives(header.map((key) => row[key]), options.delimiter), options.indent);
+}
+function* encodeMixedArrayAsListItemsLines(prefix, items, depth, options) {
+  yield indentedLine(depth, formatHeader(items.length, {
+    key: prefix,
+    delimiter: options.delimiter
+  }), options.indent);
+  for (const item of items) yield* encodeListItemValueLines(item, depth + 1, options);
+}
+function* encodeObjectAsListItemLines(obj, depth, options) {
+  if (isEmptyObject(obj)) {
+    yield indentedLine(depth, "-", options.indent);
+    return;
+  }
+  const entries = Object.entries(obj);
+  const [firstKey, firstValue] = entries[0];
+  const restEntries = entries.slice(1);
+  if (isJsonArray(firstValue) && isArrayOfObjects(firstValue)) {
+    const header = extractTabularHeader(firstValue);
+    if (header) {
+      yield indentedListItem(depth, formatHeader(firstValue.length, {
+        key: firstKey,
+        fields: header,
+        delimiter: options.delimiter
+      }), options.indent);
+      yield* writeTabularRowsLines(firstValue, header, depth + 2, options);
+      if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
+      return;
+    }
+  }
+  const encodedKey = encodeKey(firstKey);
+  if (isJsonPrimitive(firstValue)) yield indentedListItem(depth, `${encodedKey}: ${encodePrimitive(firstValue, options.delimiter)}`, options.indent);
+  else if (isJsonArray(firstValue)) if (firstValue.length === 0) yield indentedListItem(depth, `${encodedKey}: []`, options.indent);
+  else if (isArrayOfPrimitives(firstValue)) yield indentedListItem(depth, `${encodedKey}${encodeInlineArrayLine(firstValue, options.delimiter)}`, options.indent);
+  else {
+    yield indentedListItem(depth, `${encodedKey}${formatHeader(firstValue.length, { delimiter: options.delimiter })}`, options.indent);
+    for (const item of firstValue) yield* encodeListItemValueLines(item, depth + 2, options);
+  }
+  else if (isJsonObject(firstValue)) {
+    yield indentedListItem(depth, `${encodedKey}:`, options.indent);
+    if (!isEmptyObject(firstValue)) yield* encodeObjectLines(firstValue, depth + 2, options);
+  }
+  if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
+}
+function* encodeListItemValueLines(value, depth, options) {
+  if (isJsonPrimitive(value)) yield indentedListItem(depth, encodePrimitive(value, options.delimiter), options.indent);
+  else if (isJsonArray(value)) if (isArrayOfPrimitives(value)) yield indentedListItem(depth, encodeInlineArrayLine(value, options.delimiter), options.indent);
+  else {
+    yield indentedListItem(depth, formatHeader(value.length, { delimiter: options.delimiter }), options.indent);
+    for (const item of value) yield* encodeListItemValueLines(item, depth + 1, options);
+  }
+  else if (isJsonObject(value)) yield* encodeObjectAsListItemLines(value, depth, options);
+}
+function indentedLine(depth, content, indentSize) {
+  return " ".repeat(indentSize * depth) + content;
+}
+function indentedListItem(depth, content, indentSize) {
+  return indentedLine(depth, "- " + content, indentSize);
+}
+function applyReplacer(root, replacer) {
+  const replacedRoot = replacer("", root, []);
+  if (replacedRoot === void 0) return transformChildren(root, replacer, []);
+  return transformChildren(normalizeValue(replacedRoot), replacer, []);
+}
+function transformChildren(value, replacer, path2) {
+  if (isJsonObject(value)) return transformObject(value, replacer, path2);
+  if (isJsonArray(value)) return transformArray(value, replacer, path2);
+  return value;
+}
+function transformObject(obj, replacer, path2) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const childPath = [...path2, key];
+    const replacedValue = replacer(key, value, childPath);
+    if (replacedValue === void 0) continue;
+    setOwnProperty(result, key, transformChildren(normalizeValue(replacedValue), replacer, childPath));
+  }
+  return result;
+}
+function transformArray(arr, replacer, path2) {
+  const result = [];
+  for (let i = 0; i < arr.length; i++) {
+    const value = arr[i];
+    const childPath = [...path2, i];
+    const replacedValue = replacer(String(i), value, childPath);
+    if (replacedValue === void 0) continue;
+    const normalizedValue = normalizeValue(replacedValue);
+    result.push(transformChildren(normalizedValue, replacer, childPath));
+  }
+  return result;
+}
+function encode(input, options) {
+  return Array.from(encodeLines(input, options)).join("\n");
+}
+function encodeLines(input, options) {
+  const normalizedValue = normalizeValue(input);
+  const resolvedOptions = resolveOptions(options);
+  return encodeJsonValue(resolvedOptions.replacer ? applyReplacer(normalizedValue, resolvedOptions.replacer) : normalizedValue, resolvedOptions, 0);
+}
+function resolveOptions(options) {
+  return {
+    indent: options?.indent ?? 2,
+    delimiter: options?.delimiter ?? DEFAULT_DELIMITER,
+    keyFolding: options?.keyFolding ?? "off",
+    flattenDepth: options?.flattenDepth ?? Number.POSITIVE_INFINITY,
+    replacer: options?.replacer
+  };
+}
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/output.js
+function collapseHomeDirectory(path2, homeDir = homedir()) {
+  if (!path2.startsWith(homeDir)) {
+    return path2;
+  }
+  return `~${path2.slice(homeDir.length)}`;
+}
+function homeHeaderOutput(options) {
+  return {
+    bin: collapseHomeDirectory(options.execPath ?? process.argv[1] ?? "", options.homeDir),
+    description: options.description
+  };
+}
+function errorOutput(message, code, suggestions = []) {
+  const output = {
+    error: message,
+    code
+  };
+  if (suggestions.length > 0) {
+    output.help = suggestions;
+  }
+  return output;
+}
+function renderOutput(output) {
+  if (typeof output === "string") {
+    return output;
+  }
+  return encode(output);
+}
+function renderError(message, code, suggestions = []) {
+  return renderOutput(errorOutput(message, code, suggestions));
+}
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/update.js
+import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var REGISTRY_BASE = "https://registry.npmjs.org";
+var REGISTRY_FETCH_TIMEOUT_MS = 2e4;
+function parseSemver(version2) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-.]+))?(?:\+[0-9A-Za-z-.]+)?$/.exec(version2.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] ? match[4].split(".") : []
+  };
+}
+function comparePrerelease(a, b) {
+  if (a.length === 0 && b.length === 0)
+    return 0;
+  if (a.length === 0)
+    return 1;
+  if (b.length === 0)
+    return -1;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    if (index >= a.length)
+      return -1;
+    if (index >= b.length)
+      return 1;
+    const left = a[index];
+    const right = b[index];
+    const leftNumeric = /^\d+$/.test(left);
+    const rightNumeric = /^\d+$/.test(right);
+    if (leftNumeric && rightNumeric) {
+      const delta = Number(left) - Number(right);
+      if (delta !== 0)
+        return delta < 0 ? -1 : 1;
+    } else if (leftNumeric) {
+      return -1;
+    } else if (rightNumeric) {
+      return 1;
+    } else if (left !== right) {
+      return left < right ? -1 : 1;
+    }
+  }
+  return 0;
+}
+function compareSemver(a, b) {
+  const parsedA = parseSemver(a);
+  const parsedB = parseSemver(b);
+  if (!parsedA || !parsedB) {
+    if (a === b)
+      return 0;
+    return a < b ? -1 : 1;
+  }
+  if (parsedA.major !== parsedB.major) {
+    return parsedA.major < parsedB.major ? -1 : 1;
+  }
+  if (parsedA.minor !== parsedB.minor) {
+    return parsedA.minor < parsedB.minor ? -1 : 1;
+  }
+  if (parsedA.patch !== parsedB.patch) {
+    return parsedA.patch < parsedB.patch ? -1 : 1;
+  }
+  return comparePrerelease(parsedA.prerelease, parsedB.prerelease);
+}
+function isUpdateAvailable(current, latest) {
+  return compareSemver(latest, current) > 0;
+}
+var nodeFs = {
+  existsSync,
+  readFileSync: (path2, encoding) => readFileSync(path2, encoding)
+};
+function readNearestPackageJson(startPath, fs2 = nodeFs) {
+  let dir = dirname(startPath);
+  let previous = "";
+  while (dir !== previous) {
+    const packageJsonPath = join(dir, "package.json");
+    if (fs2.existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(fs2.readFileSync(packageJsonPath, "utf-8"));
+        if (typeof parsed.name === "string" && parsed.name.length > 0) {
+          return {
+            packageName: parsed.name,
+            version: typeof parsed.version === "string" ? parsed.version : void 0,
+            packageJsonPath
+          };
+        }
+      } catch {
+      }
+    }
+    previous = dir;
+    dir = dirname(dir);
+  }
+  return {};
+}
+function detectInstallMethod(options) {
+  const env = options.env ?? process.env;
+  const path2 = options.entry.replaceAll("\\", "/");
+  if (path2.includes("/_npx/") || /\/dlx-[^/]+\//.test(path2) || path2.includes("/pnpm/dlx/") || path2.includes("/bun/install/cache/")) {
+    return { kind: "npx" };
+  }
+  const homebrewFormula = homebrewFormulaFromPath(path2, env);
+  if (homebrewFormula) {
+    return { kind: "homebrew", formula: homebrewFormula };
+  }
+  const pnpmHome = normalizePathRoot(env.PNPM_HOME);
+  if (isPathInsideRoot(path2, pnpmHome) || isKnownPnpmGlobalStore(path2, env)) {
+    return { kind: "pnpm-global" };
+  }
+  if (isKnownNpmGlobalInstall(path2, env)) {
+    return { kind: "npm-global" };
+  }
+  return { kind: "unknown" };
+}
+function normalizePathRoot(path2) {
+  const normalized = path2?.replaceAll("\\", "/").replace(/\/+$/, "");
+  return normalized && normalized.length > 0 ? normalized : void 0;
+}
+function isPathInsideRoot(path2, root) {
+  return root !== void 0 && (path2 === root || path2.startsWith(`${root}/`));
+}
+function homebrewFormulaFromPath(path2, env) {
+  for (const root of homebrewCellarRoots(env)) {
+    if (!isPathInsideRoot(path2, root)) {
+      continue;
+    }
+    const relative = path2.slice(root.length).replace(/^\/+/, "");
+    const formula = relative.split("/")[0];
+    if (formula) {
+      return formula;
+    }
+  }
+  return null;
+}
+function homebrewCellarRoots(env) {
+  const roots = [];
+  const explicitCellar = normalizePathRoot(env.HOMEBREW_CELLAR);
+  if (explicitCellar) {
+    roots.push(explicitCellar);
+  }
+  const prefixes = [
+    env.HOMEBREW_PREFIX,
+    "/opt/homebrew",
+    "/usr/local",
+    "/home/linuxbrew/.linuxbrew"
+  ];
+  for (const prefix of prefixes) {
+    const normalized = normalizePathRoot(prefix);
+    if (normalized) {
+      roots.push(`${normalized}/Cellar`);
+    }
+  }
+  return [...new Set(roots)];
+}
+function isKnownPnpmGlobalStore(path2, env) {
+  return pnpmGlobalStoreRoots(env).some((root) => {
+    if (!isPathInsideRoot(path2, root)) {
+      return false;
+    }
+    const relative = path2.slice(root.length).replace(/^\/+/, "");
+    return /^\d+\/\.pnpm\//.test(relative);
+  });
+}
+function pnpmGlobalStoreRoots(env) {
+  const roots = [];
+  const home2 = normalizePathRoot(env.HOME ?? env.USERPROFILE);
+  if (home2) {
+    roots.push(`${home2}/Library/pnpm/global`);
+    roots.push(`${home2}/.local/share/pnpm/global`);
+    roots.push(`${home2}/AppData/Local/pnpm/global`);
+  }
+  const localAppData = normalizePathRoot(env.LOCALAPPDATA);
+  if (localAppData) {
+    roots.push(`${localAppData}/pnpm/global`);
+  }
+  return [...new Set(roots)];
+}
+function isKnownNpmGlobalInstall(path2, env) {
+  return npmGlobalNodeModulesRoots(env).some((root) => isPathInsideRoot(path2, root)) || isKnownVersionManagerNpmGlobal(path2, env);
+}
+function npmGlobalNodeModulesRoots(env) {
+  const roots = [
+    "/usr/local/lib/node_modules",
+    "/usr/lib/node_modules",
+    "/opt/homebrew/lib/node_modules",
+    "/opt/local/lib/node_modules"
+  ];
+  const prefixes = [env.npm_config_prefix, env.NPM_CONFIG_PREFIX];
+  for (const prefix of prefixes) {
+    const normalized = normalizePathRoot(prefix);
+    if (normalized) {
+      roots.push(`${normalized}/lib/node_modules`, `${normalized}/node_modules`);
+    }
+  }
+  const appData = normalizePathRoot(env.APPDATA);
+  if (appData) {
+    roots.push(`${appData}/npm/node_modules`);
+  }
+  const home2 = normalizePathRoot(env.HOME ?? env.USERPROFILE);
+  if (home2) {
+    roots.push(`${home2}/.npm-global/lib/node_modules`, `${home2}/.npm-packages/lib/node_modules`);
+  }
+  return [...new Set(roots)];
+}
+function isKnownVersionManagerNpmGlobal(path2, env) {
+  return versionManagerNodeRoots(env).some((root) => isPathInsideRoot(path2, root) && path2.includes("/lib/node_modules/"));
+}
+function versionManagerNodeRoots(env) {
+  const roots = [];
+  const home2 = normalizePathRoot(env.HOME ?? env.USERPROFILE);
+  if (home2) {
+    roots.push(`${home2}/.nvm/versions/node`, `${home2}/.local/share/fnm/node-versions`, `${home2}/.asdf/installs/nodejs`, `${home2}/.nodenv/versions`, `${home2}/.local/share/mise/installs/node`, `${home2}/.volta/tools/image/node`);
+  }
+  const nvmDir = normalizePathRoot(env.NVM_DIR);
+  if (nvmDir) {
+    roots.push(`${nvmDir}/versions/node`);
+  }
+  const fnmDir = normalizePathRoot(env.FNM_DIR);
+  if (fnmDir) {
+    roots.push(`${fnmDir}/node-versions`);
+  }
+  return [...new Set(roots)];
+}
+function planUpgrade(method, packageName) {
+  switch (method.kind) {
+    case "npm-global":
+      return {
+        method: method.kind,
+        command: `npm install -g ${packageName}@latest`,
+        argv: ["npm", "install", "-g", `${packageName}@latest`]
+      };
+    case "pnpm-global":
+      return {
+        method: method.kind,
+        command: `pnpm add -g ${packageName}@latest`,
+        argv: ["pnpm", "add", "-g", `${packageName}@latest`]
+      };
+    case "homebrew":
+      if (method.formula) {
+        return {
+          method: method.kind,
+          command: `brew upgrade ${method.formula}`,
+          argv: ["brew", "upgrade", method.formula]
+        };
+      }
+      return {
+        method: method.kind,
+        command: `brew upgrade ${packageName}`,
+        argv: null,
+        note: "Could not determine the Homebrew formula automatically"
+      };
+    case "npx":
+      return {
+        method: method.kind,
+        command: `npx -y ${packageName}@latest`,
+        argv: null,
+        note: "npx always runs the latest published version, so no install is needed"
+      };
+    case "unknown":
+      return {
+        method: method.kind,
+        command: `npm install -g ${packageName}@latest`,
+        argv: null,
+        note: "Could not determine how this tool was installed"
+      };
+  }
+}
+function packageManagerExecutable(command, platform) {
+  if (platform === "win32" && (command === "npm" || command === "pnpm" || command === "npx")) {
+    return `${command}.cmd`;
+  }
+  return command;
+}
+function shouldUseWindowsPackageManagerShell(command, platform) {
+  return platform === "win32" && (command === "npm" || command === "pnpm" || command === "npx");
+}
+async function npmViewVersion(packageName, platform = process.platform) {
+  try {
+    const command = packageManagerExecutable("npm", platform);
+    const { stdout } = await execFileAsync(command, ["view", packageName, "version"], {
+      timeout: 2e4,
+      shell: shouldUseWindowsPackageManagerShell("npm", platform)
+    });
+    const version2 = stdout.trim();
+    return version2.length > 0 ? version2 : null;
+  } catch {
+    return null;
+  }
+}
+function registryPath(packageName) {
+  return packageName.startsWith("@") ? packageName.replace("/", "%2f") : packageName;
+}
+function notPublishedError(packageName) {
+  return new AxiError(`${packageName} is not published to the npm registry`, "UPDATE_ERROR", [
+    "Confirm the package name is correct",
+    `Run \`npm view ${packageName} version\` to check manually`
+  ]);
+}
+var RegistryNotFoundError = class extends Error {
+};
+async function withRegistryTimeout(timeoutMs, operation) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Registry fetch timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([operation(controller.signal), timeout]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+async function fetchRegistryVersion(fetchImpl, packageName, timeoutMs) {
+  return withRegistryTimeout(timeoutMs, async (signal) => {
+    const response = await fetchImpl(`${REGISTRY_BASE}/${registryPath(packageName)}/latest`, { headers: { accept: "application/json" }, signal });
+    if (response.ok) {
+      const data = await response.json();
+      if (typeof data.version === "string" && data.version.length > 0) {
+        return data.version;
+      }
+    } else if (response.status === 404) {
+      throw new RegistryNotFoundError();
+    }
+    return null;
+  });
+}
+async function fetchLatestVersion(packageName, options = {}) {
+  const fetchImpl = options.fetchImpl === void 0 ? globalThis.fetch : options.fetchImpl ?? void 0;
+  let registryNotFound = false;
+  if (typeof fetchImpl === "function") {
+    try {
+      const version2 = await fetchRegistryVersion(fetchImpl, packageName, options.fetchTimeoutMs ?? REGISTRY_FETCH_TIMEOUT_MS);
+      if (version2) {
+        return version2;
+      }
+    } catch (error) {
+      if (error instanceof RegistryNotFoundError) {
+        registryNotFound = true;
+      } else if (error instanceof AxiError) {
+        throw error;
+      }
+    }
+  }
+  const viewed = await (options.npmView ?? ((name) => npmViewVersion(name, options.platform)))(packageName);
+  if (viewed) {
+    return viewed;
+  }
+  if (registryNotFound) {
+    throw notPublishedError(packageName);
+  }
+  throw new AxiError(`Could not reach the npm registry to check for updates to ${packageName}`, "UPDATE_ERROR", [
+    "Check your network connection and try again",
+    `Run \`npm view ${packageName} version\` to check manually`
+  ]);
+}
+async function defaultRunInstall(plan, stdout, context) {
+  const argv = plan.argv;
+  if (!argv || argv.length === 0) {
+    return { ok: false, message: "No runnable upgrade command" };
+  }
+  stdout.write(`running: ${plan.command}
+`);
+  return new Promise((resolve) => {
+    const [command, ...args] = argv;
+    const child = spawn(packageManagerExecutable(command, context.platform), args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: shouldUseWindowsPackageManagerShell(command, context.platform)
+    });
+    child.stdout?.on("data", (chunk) => {
+      process.stderr.write(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      process.stderr.write(chunk);
+    });
+    child.on("error", (error) => {
+      resolve({ ok: false, message: error.message });
+    });
+    child.on("close", (code) => {
+      resolve(code === 0 ? { ok: true } : { ok: false, message: `${plan.command} exited with code ${code}` });
+    });
+  });
+}
+function binNameFromArgv(invokedAs) {
+  return basename(invokedAs ?? "tool") || "tool";
+}
+function resolveEntry(invokedAs, realpath) {
+  if (!invokedAs) {
+    return void 0;
+  }
+  try {
+    return realpath(invokedAs);
+  } catch {
+    return invokedAs;
+  }
+}
+function resolveInstalledVersion(invokedAs, realpath, fs2) {
+  const installedEntry = resolveEntry(invokedAs, realpath);
+  return installedEntry ? readNearestPackageJson(installedEntry, fs2).version : void 0;
+}
+function homebrewUpgradeOutput(options) {
+  const update = {
+    package: options.packageName,
+    previous: options.current,
+    latest: options.latest
+  };
+  if (options.installedVersion) {
+    update.installed = options.installedVersion;
+    update.available = isUpdateAvailable(options.installedVersion, options.latest);
+  } else {
+    update.action = "upgrade-command-ran";
+    update.result = "installed version unknown";
+  }
+  return {
+    update,
+    command: options.command
+  };
+}
+function parseUpdateArgs(args, binName) {
+  if (args.length === 0) {
+    return "install";
+  }
+  if (args.length === 1 && (args[0] === "--check" || args[0] === "--dry-run")) {
+    return "check";
+  }
+  const unknown = args.find((arg) => arg !== "--check" && arg !== "--dry-run");
+  throw new AxiError(unknown ? `Unknown update option: ${unknown}` : "Invalid update arguments", "VALIDATION_ERROR", [
+    `Run \`${binName} update --help\``,
+    `Use \`${binName} update --check\` to check without installing`
+  ]);
+}
+async function runUpdate(options) {
+  const invokedAs = options.invokedAs ?? process.argv[1];
+  const binName = binNameFromArgv(invokedAs);
+  const mode = parseUpdateArgs(options.args, binName);
+  const platform = options.platform ?? process.platform;
+  const realpath = options.realpath ?? ((path2) => realpathSync(path2));
+  const entry = resolveEntry(invokedAs, realpath);
+  const fs2 = options.fs ?? nodeFs;
+  const fromPackageJson = entry ? readNearestPackageJson(entry, fs2) : {};
+  const packageName = options.packageName ?? fromPackageJson.packageName;
+  const current = options.version ?? fromPackageJson.version;
+  if (!packageName) {
+    throw new AxiError("Could not determine the package name to update", "UPDATE_ERROR", [
+      "Reinstall the tool from npm so its package.json is available",
+      "Tool authors can pass `packageName` to runAxiCli()"
+    ]);
+  }
+  if (!current) {
+    throw new AxiError(`Could not determine the current version of ${packageName}`, "UPDATE_ERROR", [
+      "Reinstall the tool from npm so its version is available",
+      "Tool authors can pass `version` to runAxiCli()"
+    ]);
+  }
+  const fetchLatest = options.fetchLatest ?? ((name) => fetchLatestVersion(name, { platform }));
+  const latest = await fetchLatest(packageName);
+  const available = isUpdateAvailable(current, latest);
+  if (mode === "check") {
+    const output = {
+      update: { package: packageName, current, latest, available }
+    };
+    if (available) {
+      output.help = [`Run \`${binName} update\` to upgrade`];
+    }
+    return output;
+  }
+  if (!available) {
+    return {
+      update: `${packageName} is already on the latest version (${current})`
+    };
+  }
+  const method = entry ? detectInstallMethod({ entry, env: options.env }) : { kind: "unknown" };
+  const plan = planUpgrade(method, packageName);
+  if (!plan.argv) {
+    const help = method.kind === "npx" ? `Re-run with \`${plan.command}\` to use the latest version` : `Run \`${plan.command}\` to upgrade`;
+    return {
+      update: {
+        package: packageName,
+        current,
+        latest,
+        available: true,
+        action: "manual",
+        ...plan.note ? { reason: plan.note } : {},
+        run: plan.command
+      },
+      help: [help]
+    };
+  }
+  const runInstall = options.runInstall ?? defaultRunInstall;
+  const result = await runInstall(plan, options.stdout, { platform });
+  if (!result.ok) {
+    throw new AxiError(`Failed to upgrade ${packageName}`, "UPDATE_ERROR", [
+      `Run \`${plan.command}\` manually`,
+      ...result.message ? [result.message] : []
+    ]);
+  }
+  if (method.kind === "homebrew") {
+    return homebrewUpgradeOutput({
+      packageName,
+      current,
+      latest,
+      installedVersion: resolveInstalledVersion(invokedAs, realpath, fs2),
+      command: plan.command
+    });
+  }
+  return {
+    update: `${packageName} upgraded ${current} -> ${latest}`,
+    command: plan.command
+  };
+}
+
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/cli.js
+var stdoutWithErrorHandler = /* @__PURE__ */ new WeakSet();
+function defaultFormatError(error) {
+  if (error instanceof AxiError) {
+    return {
+      output: `${renderError(error.message, error.code, error.suggestions)}
+`,
+      exitCode: exitCodeForError(error)
+    };
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    output: `${renderError(message, "UNKNOWN")}
+`,
+    exitCode: 1
+  };
+}
+function defaultUnknownCommand(command) {
+  return `${renderError(`Unknown command: ${command}`, "VALIDATION_ERROR", [
+    "Run `--help` to see available commands"
+  ])}
+`;
+}
+async function runAxiCli(options) {
+  const stdout = options.stdout ?? process.stdout;
+  handleStdoutErrors(stdout);
+  try {
+    await options.initialize?.();
+  } catch (error) {
+    writeFormattedError(error, stdout, options);
+    return;
+  }
+  const argv = options.argv ?? process.argv.slice(2);
+  if (argv.length === 1 && argv[0] === "--help") {
+    stdout.write(options.topLevelHelp);
+    if (!options.commands.update) {
+      if (options.topLevelHelp.length > 0 && !options.topLevelHelp.endsWith("\n")) {
+        stdout.write("\n");
+      }
+      stdout.write(builtinCommandsHelp());
+    }
+    return;
+  }
+  if (argv.length === 1 && isVersionFlag(argv[0])) {
+    if (!options.version) {
+      stdout.write(`${renderError("Version is not configured for this tool", "VALIDATION_ERROR")}
+`);
+      process.exitCode = 2;
+      return;
+    }
+    stdout.write(`${options.version}
+`);
+    return;
+  }
+  const command = argv[0];
+  if (!command) {
+    await runHandler(options.home, [], { command: void 0, args: [] }, stdout, options, true);
+    return;
+  }
+  if (command.startsWith("-")) {
+    stdout.write(renderLeadingFlagError(command));
+    process.exitCode = 2;
+    return;
+  }
+  const args = argv.slice(1);
+  if (command === "update" && !options.commands.update) {
+    await runBuiltinUpdate(args, stdout, options);
+    return;
+  }
+  if (args.includes("--help")) {
+    const help = options.getCommandHelp?.(command);
+    if (help) {
+      stdout.write(help);
+      return;
+    }
+  }
+  const handler2 = options.commands[command];
+  if (!handler2) {
+    stdout.write((options.renderUnknownCommand ?? defaultUnknownCommand)(command));
+    process.exitCode = 2;
+    return;
+  }
+  await runHandler(handler2, args, { command, args }, stdout, options, false);
+}
+function handleStdoutErrors(stdout) {
+  const errorObservable = stdout;
+  if (typeof errorObservable.on !== "function" || stdoutWithErrorHandler.has(stdout)) {
+    return;
+  }
+  stdoutWithErrorHandler.add(stdout);
+  errorObservable.on("error", (error) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "EPIPE") {
+      process.exitCode = 0;
+      return;
+    }
+    throw error;
+  });
+}
+async function runHandler(handler2, args, contextInput, stdout, options, isHomeView) {
+  try {
+    const context = await options.resolveContext?.(contextInput);
+    const output = await handler2(args, context);
+    stdout.write(`${renderCommandOutput(output, options, isHomeView)}
+`);
+  } catch (error) {
+    writeFormattedError(error, stdout, options);
+  }
+}
+async function runBuiltinUpdate(args, stdout, options) {
+  if (args.length === 1 && args[0] === "--help") {
+    stdout.write(builtinUpdateHelp());
+    return;
+  }
+  try {
+    const output = await runUpdate({
+      args,
+      stdout,
+      packageName: options.packageName,
+      version: options.version
+    });
+    stdout.write(`${renderOutput(output)}
+`);
+  } catch (error) {
+    writeFormattedError(error, stdout, options);
+  }
+}
+function writeFormattedError(error, stdout, options) {
+  const formatted = (options.formatError ?? defaultFormatError)(error);
+  stdout.write(formatted.output);
+  process.exitCode = formatted.exitCode;
+}
+function resolveBinName() {
+  return basename2(process.argv[1] ?? "tool") || "tool";
+}
+function builtinCommandsHelp() {
+  const bin = resolveBinName();
+  return `${renderOutput({
+    "built-in": {
+      update: `Upgrade \`${bin}\` to the latest published version`,
+      "update --check": "Report current vs latest without installing"
+    }
+  })}
+`;
+}
+function builtinUpdateHelp() {
+  const bin = resolveBinName();
+  return `${renderOutput({
+    command: "update",
+    description: `Upgrade \`${bin}\` to the latest published npm version`,
+    flags: {
+      "--check": "Report current vs latest and exit without installing"
+    },
+    examples: [`${bin} update`, `${bin} update --check`]
+  })}
+`;
+}
+function renderLeadingFlagError(flag) {
+  const bin = basename2(process.argv[1] ?? "tool") || "tool";
+  return `${renderError("Flags must come after the command", "VALIDATION_ERROR", [
+    `Run \`${bin} <command> [args] [flags]\``,
+    `Move \`${flag}\` after the command instead of before it`
+  ])}
+`;
+}
+function isVersionFlag(flag) {
+  return flag === "-v" || flag === "-V" || flag === "--version";
+}
+function renderCommandOutput(output, options, isHomeView) {
+  if (!isHomeView) {
+    return renderOutput(output);
+  }
+  const header = homeHeaderOutput({ description: options.description });
+  if (typeof output === "string") {
+    return `${renderOutput(header)}
+${output}`;
+  }
+  return renderOutput(mergeHomeHeader(header, output));
+}
+function mergeHomeHeader(header, output) {
+  const rest = { ...output };
+  delete rest.bin;
+  delete rest.description;
+  return {
+    ...header,
+    ...rest
+  };
+}
+
+// package.json
+var version = "0.1.0";
+
+// src/version.mjs
+var VERSION = version;
+
+// src/cli.mjs
+var DIR = path.dirname(fileURLToPath(import.meta.url));
+var SCRIPT = path.join(DIR, "punchlist.mjs");
+var STATE_DIR = path.join(os.tmpdir(), "punchlist");
+var PREFIX = "/__pe";
+var COOKIE = "__pe_auth";
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v" };
+var FLAGS = {
+  start: SERVE_FLAGS,
+  serve: SERVE_FLAGS,
+  wait: { port: "v", timeout: "v", json: "b" },
+  show: { port: "v", full: "b" },
+  done: { port: "v", failed: "b" },
+  status: { port: "v" },
+  stop: { port: "v" }
+};
+function usageError(msg, cmd, extra = []) {
+  const flags = Object.keys(FLAGS[cmd]).map((f) => `--${f}`).join(", ");
+  return new AxiError(msg, "VALIDATION_ERROR", [...extra, `Valid flags for \`${cmd}\`: ${flags} (--help always allowed)`]);
+}
+function parseArgs(cmd, argv) {
+  const spec = FLAGS[cmd], args = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith("--")) {
+      args._.push(a);
+      continue;
+    }
+    const eq = a.indexOf("=");
+    const k = eq > -1 ? a.slice(2, eq) : a.slice(2);
+    let v = eq > -1 ? a.slice(eq + 1) : void 0;
+    if (!spec[k]) throw usageError(`unknown flag --${k} for \`${cmd}\``, cmd);
+    if (spec[k] === "b") {
+      if (v !== void 0) throw usageError(`--${k} takes no value`, cmd);
+      args[k] = true;
+      continue;
+    }
+    if (v === void 0) {
+      v = argv[++i];
+      if (v === void 0 || v.startsWith("--")) throw usageError(`--${k} needs a value`, cmd);
+    }
+    args[k] = v;
+  }
+  return args;
+}
+function normalizeTarget(t) {
+  if (!t) throw usageError("--target is required (dev server port or URL)", "start", [`Run \`${PE} start --target 5173\` or \`--target http://localhost:3000\``]);
+  t = String(t);
+  if (/^\d+$/.test(t)) return `http://localhost:${t}`;
+  if (!/^https?:\/\//.test(t)) return `http://${t}`;
+  return t.replace(/\/+$/, "");
+}
+function statePath(port) {
+  return path.join(STATE_DIR, `${port}.json`);
+}
+function loadState(args) {
+  if (args.port) {
+    const p = statePath(args.port);
+    if (!fs.existsSync(p)) throw notRunning(`no proxy running on port ${args.port}`, args.port);
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  }
+  const files = fs.existsSync(STATE_DIR) ? fs.readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")) : [];
+  if (!files.length) throw notRunning("no proxy running");
+  files.sort((a, b) => fs.statSync(path.join(STATE_DIR, b)).mtimeMs - fs.statSync(path.join(STATE_DIR, a)).mtimeMs);
+  return JSON.parse(fs.readFileSync(path.join(STATE_DIR, files[0]), "utf8"));
+}
+function notRunning(msg, port) {
+  return new AxiError(msg, "NOT_RUNNING", [`Run \`${PE} start --target <port|url>${port ? ` --port ${port}` : ""}\``]);
+}
+async function api(st, p, opts = {}) {
+  try {
+    return await fetch(`${apiBase(st)}${p}`, { ...opts, headers: { "x-pe-token": st.token, ...opts.headers } });
+  } catch {
+    throw new AxiError(`proxy on port ${st.port} is not responding`, "NOT_RESPONDING", [`Run \`${PE} start --target ${st.target} --port ${st.port}\` to restart it`]);
+  }
+}
+function apiBase(st) {
+  const h = ["0.0.0.0", "::", ""].includes(st.host) ? "127.0.0.1" : st.host;
+  return `http://${h.includes(":") ? `[${h}]` : h}:${st.port}${PREFIX}`;
+}
+function readBody(req, limit = 2e6) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error("body too large"));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+function json(res, status, obj) {
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  res.end(JSON.stringify(obj));
+}
+function getCookie(header, name) {
+  for (const part of (header || "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
+  return null;
+}
+function stripCookie(header, name) {
+  if (!header) return header;
+  const kept = header.split(";").map((s) => s.trim()).filter((s) => s && !s.startsWith(name + "="));
+  return kept.length ? kept.join("; ") : void 0;
+}
+function tailscaleName() {
+  try {
+    const out = execFileSync("tailscale", ["status", "--json"], { stdio: ["ignore", "pipe", "ignore"], timeout: 3e3 });
+    return JSON.parse(out).Self?.DNSName?.replace(/\.$/, "") || null;
+  } catch {
+    return null;
+  }
+}
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function printInfo(st) {
+  const authPath = st.auth === false ? "/" : `${PREFIX}/auth?token=${st.token}`;
+  const ts = tailscaleName();
+  console.log(`punchlist: proxying ${st.target}`);
+  console.log(`  Local:     http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`);
+  if (ts) {
+    console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
+    console.log(`             https://${ts}${authPath}`);
+  }
+  console.log(`  Agent:     node ${SCRIPT} wait --port ${st.port}`);
+}
+function links(st) {
+  const authPath = st.auth === false ? "/" : `${PREFIX}/auth?token=${st.token}`;
+  const ts = tailscaleName();
+  return { local: `http://${st.host === "0.0.0.0" ? "127.0.0.1" : st.host}:${st.port}${authPath}`, ...ts ? { tailscale: `https://${ts}${authPath}` } : {} };
+}
+function startOutput(st, state) {
+  const l = links(st);
+  return {
+    proxy: { target: st.target, port: st.port, pid: st.pid, state },
+    links: l,
+    help: [
+      "Send the user the local link exactly (its token sets the access cookie) before you run wait: wait blocks, so a message queued behind it may not reach the user",
+      ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
+      `Run \`${PE} wait --port ${st.port}\` to receive the user's notes`
+    ]
+  };
+}
+async function cmdStart(args) {
+  const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
+  const port = Number(args.port ?? 4e3);
+  const p = statePath(port);
+  const old = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+  if (old && alive(old.pid)) {
+    if (old.target !== target) throw new AxiError(`port ${port} already proxies ${old.target}`, "PORT_BUSY", [`Run \`${PE} stop --port ${port}\` first, or pick another --port`]);
+    return startOutput(old, "already running");
+  }
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.rmSync(p, { force: true });
+  const logFile = path.join(STATE_DIR, `${port}.log`);
+  const fd = fs.openSync(logFile, "w");
+  const child = spawn2(process.execPath, [SCRIPT, "serve", ...process.argv.slice(3)], { detached: true, stdio: ["ignore", fd, fd] });
+  child.unref();
+  fs.closeSync(fd);
+  let exited = false;
+  child.on("exit", () => {
+    exited = true;
+  });
+  for (let i = 0; i < 100 && !exited; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const st = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+    if (st?.pid === child.pid) return startOutput(st, "started");
+  }
+  if (!exited) child.kill();
+  const log = fs.readFileSync(logFile, "utf8").trim().slice(-1e3);
+  throw new AxiError(`proxy did not start: ${log || "no output"}`, "START_FAILED", [`Full log: ${logFile}`]);
+}
+function cmdServe(args) {
+  const target = new URL(normalizeTarget(args.target ?? args._[0]));
+  const port = Number(args.port ?? 4e3);
+  const host = args.host ?? "127.0.0.1";
+  const noAuth = args["no-auth"] === true;
+  const token = String(args.token ?? crypto.randomBytes(12).toString("base64url"));
+  const targetPort = target.port || (target.protocol === "https:" ? 443 : 80);
+  const lib = target.protocol === "https:" ? https : http;
+  const selfOrigins = [target.origin];
+  if (["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)) {
+    for (const h of ["localhost", "127.0.0.1", "[::1]"]) selfOrigins.push(`${target.protocol}//${h}:${targetPort}`);
+  }
+  const origins = [...new Set(selfOrigins)];
+  const items = [];
+  const waiters = /* @__PURE__ */ new Set();
+  const sse = /* @__PURE__ */ new Set();
+  let seq = 0;
+  const summarize = (p) => {
+    const n = p.notes.length;
+    return { label: n === 1 ? p.notes[0].comment.slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
+  };
+  const publicItem = (it) => ({ id: it.id, status: it.status, message: it.message, ...summarize(it.payload) });
+  const broadcast = (obj) => {
+    const line = `data: ${JSON.stringify(obj)}
+
+`;
+    for (const r of sse) r.write(line);
+  };
+  function dispatch() {
+    for (const w of waiters) {
+      const it = items.find((i) => i.status === "pending");
+      if (!it) return;
+      it.status = "working";
+      waiters.delete(w);
+      clearTimeout(w.timer);
+      json(w.res, 200, it);
+      broadcast({ type: "update", item: publicItem(it) });
+    }
+  }
+  function authed(req) {
+    if (noAuth) return true;
+    return getCookie(req.headers.cookie, COOKIE) === token || req.headers["x-pe-token"] === token;
+  }
+  function upstreamHeaders(req) {
+    const h = { ...req.headers };
+    h.host = target.host;
+    if (h.origin) h.origin = target.origin;
+    if (h.referer) {
+      try {
+        const u = new URL(h.referer);
+        h.referer = target.origin + u.pathname + u.search;
+      } catch {
+      }
+    }
+    for (const k of Object.keys(h)) if (k.startsWith("x-forwarded-") || k === "forwarded" || k === "x-pe-token") delete h[k];
+    delete h["accept-encoding"];
+    const c = stripCookie(h.cookie, COOKIE);
+    if (c) h.cookie = c;
+    else delete h.cookie;
+    return h;
+  }
+  function rewriteLocation(loc) {
+    for (const o of origins) if (loc === o || loc.startsWith(o + "/") || loc.startsWith(o + "?")) return loc.slice(o.length) || "/";
+    return loc;
+  }
+  function injectHtml(html) {
+    for (const o of origins) html = html.split(o + "/").join("/").split(o).join("/");
+    const tag = `<script src="${PREFIX}/client.js" defer data-pe></script>`;
+    if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, tag + "</head>");
+    if (/<body[^>]*>/i.test(html)) return html.replace(/<body[^>]*>/i, (m) => m + tag);
+    return html + tag;
+  }
+  function proxy(req, res) {
+    const upReq = lib.request({
+      hostname: target.hostname.replace(/^\[|\]$/g, ""),
+      port: targetPort,
+      method: req.method,
+      path: req.url,
+      headers: upstreamHeaders(req),
+      rejectUnauthorized: false
+    }, (upRes) => {
+      const h = { ...upRes.headers };
+      delete h["content-security-policy"];
+      delete h["content-security-policy-report-only"];
+      if (h.location) h.location = rewriteLocation(h.location);
+      if (h["set-cookie"]) h["set-cookie"] = h["set-cookie"].map((c) => c.replace(/;\s*domain=[^;]*/i, ""));
+      const isHtml = /text\/html/i.test(h["content-type"] || "");
+      if (!isHtml || req.method === "HEAD" || upRes.statusCode === 204 || upRes.statusCode === 304) {
+        res.writeHead(upRes.statusCode, h);
+        upRes.pipe(res);
+        return;
+      }
+      let stream = upRes;
+      const enc = String(h["content-encoding"] || "").toLowerCase();
+      if (enc === "gzip") stream = upRes.pipe(zlib.createGunzip());
+      else if (enc === "br") stream = upRes.pipe(zlib.createBrotliDecompress());
+      else if (enc === "deflate") stream = upRes.pipe(zlib.createInflate());
+      const chunks = [];
+      stream.on("data", (c) => chunks.push(c));
+      stream.on("error", (e) => {
+        if (!res.headersSent) res.writeHead(502);
+        res.end(`punchlist: decode error ${e.message}`);
+      });
+      stream.on("end", () => {
+        const body = Buffer.from(injectHtml(Buffer.concat(chunks).toString("utf8")), "utf8");
+        delete h["content-encoding"];
+        delete h["transfer-encoding"];
+        h["content-length"] = String(body.length);
+        res.writeHead(upRes.statusCode, h);
+        res.end(body);
+      });
+    });
+    upReq.on("error", (e) => {
+      if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`punchlist: cannot reach ${target.origin} (${e.code || e.message}). Is the dev server running?`);
+    });
+    req.pipe(upReq);
+  }
+  async function api2(req, res, url) {
+    const p = url.pathname.slice(PREFIX.length);
+    if (p === "/client.js") {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
+      return res.end(fs.readFileSync(path.join(DIR, "client.js"), "utf8"));
+    }
+    if (p === "/requests" && req.method === "POST") {
+      let payload;
+      try {
+        payload = JSON.parse(await readBody(req));
+      } catch (e) {
+        return json(res, 400, { error: e.message });
+      }
+      if (!Array.isArray(payload.notes) || !payload.notes.length || payload.notes.some((n) => !n.comment?.trim() || !n.elements?.length))
+        return json(res, 400, { error: "expected { notes: [{ comment, elements: [...] }] }" });
+      const it = { id: `r${++seq}`, status: "pending", createdAt: (/* @__PURE__ */ new Date()).toISOString(), payload, message: null };
+      items.push(it);
+      log(`received ${it.id}: ${summarize(payload).prompt.slice(0, 100)}`);
+      broadcast({ type: "update", item: publicItem(it) });
+      dispatch();
+      return json(res, 201, publicItem(it));
+    }
+    if (p === "/requests" && req.method === "GET") return json(res, 200, items.map(publicItem));
+    let m;
+    if ((m = p.match(/^\/requests\/([\w-]+)$/)) && req.method === "GET") {
+      const it = items.find((i) => i.id === m[1]);
+      return it ? json(res, 200, it) : json(res, 404, { error: "unknown id" });
+    }
+    if ((m = p.match(/^\/requests\/([\w-]+)\/done$/)) && req.method === "POST") {
+      const it = items.find((i) => i.id === m[1]);
+      if (!it) return json(res, 404, { error: "unknown id" });
+      let body = {};
+      try {
+        body = JSON.parse(await readBody(req) || "{}");
+      } catch {
+      }
+      it.status = body.status === "failed" ? "failed" : "done";
+      it.message = body.message || null;
+      log(`${it.status} ${it.id}${it.message ? `: ${it.message}` : ""}`);
+      broadcast({ type: "update", item: publicItem(it) });
+      return json(res, 200, publicItem(it));
+    }
+    if (p === "/next" && req.method === "GET") {
+      const timeout = Math.min(Number(url.searchParams.get("timeout")) || 25e3, 6e4);
+      const w = { res };
+      w.timer = setTimeout(() => {
+        waiters.delete(w);
+        res.writeHead(204);
+        res.end();
+      }, timeout);
+      req.on("close", () => {
+        clearTimeout(w.timer);
+        waiters.delete(w);
+      });
+      waiters.add(w);
+      return dispatch();
+    }
+    if (p === "/events") {
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+      res.write(`data: ${JSON.stringify({ type: "snapshot", items: items.map(publicItem) })}
+
+`);
+      sse.add(res);
+      const ka = setInterval(() => res.write(": ka\n\n"), 25e3);
+      req.on("close", () => {
+        clearInterval(ka);
+        sse.delete(res);
+      });
+      return;
+    }
+    json(res, 404, { error: "not found" });
+  }
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    if (url.pathname === `${PREFIX}/auth`) {
+      const next = url.searchParams.get("next");
+      const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      if (noAuth || url.searchParams.get("token") === token) {
+        res.writeHead(302, { "set-cookie": `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`, location: dest });
+      } else res.writeHead(403, { "content-type": "text/plain" });
+      return res.end(res.statusCode === 403 ? "punchlist: bad token" : "");
+    }
+    if (!authed(req)) {
+      res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
+      return res.end("punchlist: open the link printed by `punchlist start` (it carries the access token).");
+    }
+    if (url.pathname.startsWith(PREFIX + "/")) return api2(req, res, url).catch((e) => json(res, 500, { error: e.message }));
+    proxy(req, res);
+  });
+  server.on("upgrade", (req, socket, head) => {
+    if (!authed(req)) return socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    const opts = { host: target.hostname.replace(/^\[|\]$/g, ""), port: targetPort, servername: target.hostname, rejectUnauthorized: false };
+    const up = (target.protocol === "https:" ? tls : net).connect(opts, () => {
+      let raw = `${req.method} ${req.url} HTTP/1.1\r
+`;
+      const h = upstreamHeaders(req);
+      for (const [k, v] of Object.entries(h)) for (const vv of [].concat(v)) raw += `${k}: ${vv}\r
+`;
+      up.write(raw + "\r\n");
+      if (head?.length) up.write(head);
+      up.pipe(socket);
+      socket.pipe(up);
+    });
+    up.on("error", () => socket.destroy());
+    socket.on("error", () => up.destroy());
+  });
+  function log(msg) {
+    console.log(`[punchlist ${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${msg}`);
+  }
+  server.listen(port, host, () => {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid };
+    fs.writeFileSync(statePath(port), JSON.stringify(st));
+    printInfo(st);
+  });
+  server.on("error", (e) => {
+    console.error(e.code === "EADDRINUSE" ? `port ${port} is in use (pick another with --port)` : e.message);
+    process.exit(1);
+  });
+  const cleanup = () => {
+    try {
+      fs.unlinkSync(statePath(port));
+    } catch {
+    }
+    process.exit(0);
+  };
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+  return new Promise(() => {
+  });
+}
+var HTML_LIMIT = 600;
+function requestView(it, port, full = false) {
+  const { notes, viewport } = it.payload;
+  const kinds = new Set(notes.map((n) => n.kind));
+  let cut = false;
+  const noHint = [];
+  const view = {
+    request: { id: it.id, status: it.status, notes: notes.length, ...viewport ? { viewport: `${viewport.w}x${viewport.h}` } : {} },
+    notes: notes.map((n, i) => ({
+      key: String(i + 1),
+      kind: n.kind,
+      comment: n.comment,
+      page: n.path,
+      ...n.frozen ? { frozen: "captured with animations paused" } : {},
+      ...n.kind === "text" ? { selected: n.text } : {},
+      ...n.kind === "area" ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {},
+      targets: n.elements.map((e, j) => {
+        const key = n.elements.length > 1 ? `${i + 1}${"abcdef"[j]}` : String(i + 1);
+        const h = e.hints || {};
+        const hints = Object.fromEntries(["svelte", "rails", "react", "vue"].filter((k) => h[k]?.length).map((k) => [k, h[k].join(k === "rails" ? " > " : k === "svelte" ? ", " : " < ")]));
+        if (!Object.keys(hints).length) noHint.push(key);
+        let html = e.html || "";
+        if (!full && html.length > HTML_LIMIT) {
+          html = `${html.slice(0, HTML_LIMIT)}... (truncated, ${html.length} chars total)`;
+          cut = true;
+        }
+        return {
+          key,
+          label: e.label,
+          ...Object.keys(hints).length ? { hints } : {},
+          ...e.text ? { text: e.text } : {},
+          html,
+          ...full ? {
+            selector: e.selector,
+            ...e.ancestors?.length ? { inside: e.ancestors.join(" > ") } : {},
+            ...e.styles ? { styles: e.styles } : {},
+            ...e.rect ? { box: `${Math.round(e.rect.width)}x${Math.round(e.rect.height)} at page (${Math.round(e.rect.x)}, ${Math.round(e.rect.y)})` } : {}
+          } : {}
+        };
+      })
+    }))
+  };
+  const help = ["Handle every note (notes may touch the same file), then report once"];
+  if (kinds.has("elements")) help.push("kind elements: apply the comment to every target; they often share one partial or component");
+  if (kinds.has("text")) help.push("kind text: change exactly the selected text; it may live in an i18n file (config/locales, src/lib/i18n)");
+  if (kinds.has("area")) help.push("kind area: the user boxed empty space; the change belongs at that spot inside the target");
+  if (noHint.length) help.push(`No source hint for [${noHint.join("], [")}]: grep for the visible text, ids, data-* attributes or uncommon classes; the page path tells you the route`);
+  if (cut || !full) help.push(`Run \`${PE} show ${it.id} --full --port ${port}\` for selectors, computed styles${cut ? " and the full HTML" : ""}`);
+  help.push(`Run \`${PE} done ${it.id} "<one line per note, e.g. 1: ... 2: ...>" --port ${port}\` when finished (--failed if nothing could be done)`);
+  return { ...view, help };
+}
+async function cmdWait(args) {
+  const st = loadState(args);
+  const secs = Number(args.timeout ?? 540);
+  if (!(secs > 0)) throw usageError("--timeout must be a number of seconds", "wait");
+  const deadline = Date.now() + secs * 1e3;
+  while (Date.now() < deadline) {
+    const left = Math.max(1e3, Math.min(25e3, deadline - Date.now()));
+    const r = await api(st, `/next?timeout=${left}`);
+    if (r.status === 200) {
+      const it = await r.json();
+      return args.json ? JSON.stringify(it, null, 2) : requestView(it, st.port);
+    }
+    if (r.status !== 204) throw new AxiError(`unexpected ${r.status} from the proxy: ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
+  }
+  return { request: `none (waited ${secs}s)`, help: [`Run \`${PE} wait --port ${st.port}\` to keep listening`] };
+}
+async function cmdShow(args) {
+  const id = args._[0];
+  if (!id) throw usageError("request id is required", "show", [`Run \`${PE} show <id> [--full]\``]);
+  const st = loadState(args);
+  const r = await api(st, `/requests/${encodeURIComponent(id)}`);
+  if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, "NOT_FOUND", [`Run \`${PE} status --port ${st.port}\` to list requests`]);
+  return requestView(await r.json(), st.port, args.full === true);
+}
+async function cmdDone(args) {
+  const id = args._[0];
+  if (!id) throw usageError("request id is required", "done", [`Run \`${PE} done <id> "<one line per note>"\``]);
+  const st = loadState(args);
+  const status = args.failed ? "failed" : "done";
+  const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status, message: args._.slice(1).join(" ") || null })
+  });
+  if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, "NOT_FOUND", [`Run \`${PE} status --port ${st.port}\` to list requests`]);
+  if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
+  return { request: { id, status }, help: [`Run \`${PE} wait --port ${st.port}\` for the next batch`] };
+}
+async function cmdStatus(args) {
+  const st = loadState(args);
+  const list = await (await api(st, "/requests")).json();
+  const by = (s) => list.filter((i) => i.status === s).length;
+  return {
+    proxy: { target: st.target, port: st.port, pid: st.pid },
+    count: list.length ? `${list.length} request${list.length === 1 ? "" : "s"} (${by("pending")} pending, ${by("working")} working, ${by("done")} done, ${by("failed")} failed)` : "0 requests - the user has not sent anything yet",
+    ...list.length ? { requests: list.map((i) => ({ id: i.id, status: i.status, prompt: i.prompt })) } : {},
+    help: [`Run \`${PE} wait --port ${st.port}\` to receive the next batch`]
+  };
+}
+function cmdStop(args) {
+  const port = args.port;
+  const p = port ? statePath(port) : null;
+  if (p && !fs.existsSync(p) || !p && !runningProxies().length) return { stop: `no proxy running${port ? ` on port ${port}` : ""} (no-op)` };
+  const st = loadState(args);
+  try {
+    process.kill(st.pid, "SIGTERM");
+  } catch {
+    fs.rmSync(statePath(st.port), { force: true });
+  }
+  return { stop: `stopped the proxy on port ${st.port}` };
+}
+function runningProxies() {
+  if (!fs.existsSync(STATE_DIR)) return [];
+  return fs.readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")).map((f) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf8"));
+    } catch {
+      return null;
+    }
+  }).filter((st) => st && alive(st.pid));
+}
+async function home() {
+  const sts = runningProxies();
+  const proxies = await Promise.all(sts.map(async (st) => {
+    let pending = "?";
+    try {
+      pending = (await (await api(st, "/requests")).json()).filter((i) => i.status === "pending").length;
+    } catch {
+    }
+    return { port: st.port, target: st.target, pending };
+  }));
+  return {
+    proxies: proxies.length ? proxies : "0 running",
+    help: proxies.length ? [`Run \`${PE} wait --port <port>\` to receive notes`, `Run \`${PE} status --port <port>\` to list requests`, `Run \`${PE} --help\` for the full guide`] : [`Run \`${PE} start --target <port|url>\` to proxy a dev server`, `Run \`${PE} --help\` for the full guide`]
+  };
+}
+var PE = `node ${SCRIPT}`;
+var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
+page; the user taps elements, writes notes and presses Send; you pull the batch, edit the source, report back.
+
+COMMANDS
+  ${PE} start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+      Start the proxy in the background (returns at once; re-running with the same target is safe).
+      --target is the dev server port or URL. --host 0.0.0.0 listens on all interfaces.
+      --no-auth only for purely local use.
+  ${PE} serve ...          Same as start, but stays in the foreground (debugging).
+  ${PE} wait [--port 4000] [--timeout 540] [--json]
+      Block until the user sends a batch. \`request: none\` = nothing yet; exit 1 = error (read error/help).
+  ${PE} show <id> [--full] [--port 4000]   Print a request again; --full adds selectors, styles, full HTML.
+  ${PE} done <id> "<one line per note>" [--failed] [--port 4000]
+  ${PE} status [--port 4000]    List requests.
+  ${PE} stop [--port 4000]      Stop the proxy when the user is finished.
+
+WORKFLOW
+  1. Find the dev server port (running processes, Procfile.dev, bin/dev, package.json scripts, the
+     conversation; ask the user only if unclear). Run start. Give the user the printed link exactly:
+     its token sets a cookie, and without it every page returns 401. If a Tailscale line is printed
+     and the user wants phone access, tell them to run \`tailscale serve --bg <port>\` and open the
+     HTTPS link. Never suggest \`tailscale funnel\`: anyone who reaches the proxy can make you edit code.
+  2. Tell the user briefly: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note,
+     repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P)
+     pauses animations. \u{1F5D2} lists notes. Notes survive reloads until sent.
+  3. Run wait. On \`request: none\`, run it again without commentary; keep going until the user
+     tells you to stop. On an error, follow its help line (usually: run start again).
+  4. A request holds notes with targets keyed [1], [2] or [3a], [3b]. Kinds: element (one target),
+     elements (apply to all; often a shared partial/component), text (change that exact text; it may
+     live in an i18n file), area (empty space boxed; change belongs at that spot in the container).
+     Handle every note, then run done once with a short line per note. If some notes fail, still do
+     the others and say which failed; use --failed only when nothing could be done. Then wait again.
+
+FINDING THE SOURCE (in this order)
+  1. Svelte file:line:col or React _debugSource - open it directly.
+  2. Rails templates - the last entry is the innermost partial/view. Present only with
+     config.action_view.annotate_rendered_view_with_filenames = true in development. Suggest it once
+     for Rails apps; do not add it yourself unless the user agrees.
+  3. React/Vue component names - grep for the definition.
+  4. No hints - grep for visible text (also config/locales/*.yml, src/lib/i18n), id, data-testid,
+     data-controller/data-action, uncommon class names. The page path tells you the route.
+  The HTML is rendered output, not source. Make the smallest change; if the element comes from a
+  shared component/partial, say in the done message that the change affects every use.
+
+KNOWN LIMITS
+  Streamed HTML is buffered before injection. Absolute dev-server URLs inside JS bundles are not
+  rewritten. Pages in cross-origin iframes cannot be picked.`;
+var HELP = {
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+  Start the proxy in the background and print the link for the user. Safe to re-run.
+  --target   dev server port or URL (required)
+  --port     proxy port (default 4000)
+  --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
+  --no-auth  no access token (purely local use only)
+examples:
+  ${PE} start --target 5173
+  ${PE} start --target http://localhost:3000 --port 4001`,
+  serve: `serve --target <port|url> [same flags as start]
+  Run the proxy in the foreground (debugging). Agents use start.`,
+  wait: `wait [--port 4000] [--timeout 540] [--json]
+  Block until the user presses Send, then print the batch of notes.
+  Prints \`request: none\` (exit 0) when nothing arrives in time: run it again.
+  --port     proxy port (default: most recently started proxy)
+  --timeout  seconds to wait (default 540, under most shell-tool limits)
+  --json     raw request JSON instead of the formatted view
+examples:
+  ${PE} wait --port 4000`,
+  show: `show <id> [--full] [--port 4000]
+  Print one request again. --full adds selectors, ancestors, computed styles, boxes and untruncated HTML.
+examples:
+  ${PE} show r1 --full --port 4000`,
+  done: `done <id> "<one line per note>" [--failed] [--port 4000]
+  Report a request back to the browser (shown as a toast).
+  --failed   nothing could be done; the message says why
+examples:
+  ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
+  ${PE} done r2 "need the new copy for the hero" --failed`,
+  status: `status [--port 4000]
+  List the requests on a proxy with counts by state.`,
+  stop: `stop [--port 4000]
+  Stop a proxy. No-op when nothing runs.`
+};
+var handler = (fn) => (cmd) => (argv) => fn(parseArgs(cmd, argv));
+var cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop }).map(([k, fn]) => [k, handler(fn)(k)]));
+await runAxiCli({
+  description: "Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source",
+  version: VERSION,
+  topLevelHelp: GUIDE + "\n",
+  home,
+  commands: cmds,
+  getCommandHelp: (c) => HELP[c] ? HELP[c] + "\n" : null
+});
