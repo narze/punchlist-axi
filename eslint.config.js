@@ -1,6 +1,7 @@
 // @ts-check
 import js from '@eslint/js';
 import { defineConfig } from 'eslint/config';
+import svelte from 'eslint-plugin-svelte';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
@@ -18,6 +19,17 @@ export default defineConfig(
       // `a || b` on strings means "empty counts as missing" (hints, component names); keep it
       '@typescript-eslint/prefer-nullish-coalescing': ['error', { ignorePrimitives: { string: true } }],
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true, argsIgnorePattern: '^_' }],
+    },
+  },
+  svelte.configs.recommended,
+  {
+    files: ['**/*.svelte'],
+    languageOptions: { parserOptions: { parser: tseslint.parser, extraFileExtensions: ['.svelte'] } },
+    rules: {
+      // svelte-check type-checks these, browser globals included
+      'no-undef': 'off',
+      // flags `x = $bindable()`, which is how Svelte declares a bindable prop
+      '@typescript-eslint/no-useless-default-assignment': 'off',
     },
   },
   { files: ['**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
