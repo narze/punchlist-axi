@@ -19,10 +19,11 @@ const dom = new JSDOM(PAGE.replace('PORT', '3000'), { runScripts: 'outside-only'
 const w = dom.window, d = w.document;
 const errors: unknown[] = []; dom.virtualConsole.on('jsdomError', e => errors.push(e));
 // what the client sent, and the hooks the stubs below hand back
-const io: { sent?: Payload | undefined; opened?: unknown; es?: { onmessage: (e: { data: string }) => void }; target?: Element;
+const io: { sent?: Payload | undefined; opened?: unknown; navigated?: string | undefined; copied?: string | undefined; es?: { onmessage: (e: { data: string }) => void }; target?: Element;
   read?: string; saved?: SourceFile[]; disk?: SourceFile; editor?: FakeEditor | undefined } = {};
 interface FakeEditor { opts: EditorOptions; doc: string; destroyed: boolean }
 const reply = (status: number, body: unknown) => Promise.resolve({ ok: status < 300, status, json: () => Promise.resolve(body) });
+let requests = 0; // the proxy numbers requests r1, r2, ...
 Object.assign(w, {
   fetch: (u: string, o?: { body: string }) => {
     if (u.startsWith('/__pe/file?')) { io.read = new URL(u, 'http://x').searchParams.get('path') ?? ''; return reply(200, must(io.disk)); }
@@ -32,8 +33,8 @@ Object.assign(w, {
       if (b.etag !== disk.etag) return reply(409, { error: 'changed on disk', etag: disk.etag });
       io.disk = { ...b, etag: `e${io.saved.length}` }; return reply(200, { file: b.file, etag: io.disk.etag });
     }
-    if (u.endsWith('/open')) { const b = JSON.parse(must(o).body) as { file: string }; io.opened = b; return reply(200, { file: b.file }); }
-    io.sent = JSON.parse(must(o).body) as Payload; return reply(200, {});
+    if (u.endsWith('/open')) { const b = JSON.parse(must(o).body) as { file: string }; io.opened = b; return reply(200, { file: b.file, url: `vscode://open/${b.file}` }); }
+    io.sent = JSON.parse(must(o).body) as Payload; return reply(201, { id: `r${++requests}` });
   },
   // CodeMirror needs layout jsdom lacks: the picker's import of editor.js gets this stand-in (checked in a real browser instead)
   __editorImport: () => Promise.resolve({ createEditor: (_parent: HTMLElement, opts: EditorOptions) => {
@@ -45,6 +46,9 @@ Object.assign(w, {
   CSS: { escape: (s: string) => s.replace(/[^\w-]/g, c => '\\' + c) },
 });
 d.elementFromPoint = () => io.target ?? null;
+// jsdom cannot follow an editor URL or copy: record them instead
+w.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { io.navigated = this.href; };
+Object.assign(d, { execCommand: () => { io.copied = [...must(d.querySelector('punchlist-root')?.shadowRoot).querySelectorAll('textarea')].at(-1)?.value; return true; } });
 const client = fs.readFileSync(path.join(here, '../scripts/client.js'), 'utf8');
 assert.equal(client.match(/\bimport\(/g)?.length, 1, 'one dynamic import: editor.js');
 w.eval(client.replace(/\bimport\(/, 'window.__editorImport('));
@@ -98,19 +102,30 @@ tool('pick');
 tap(byId('buy'));
 assert.ok(shown('.open'), 'Open shows for a Rails template hint');
 q('.open').click(); await sleep(10);
-assert.deepEqual(io.opened, { file: 'app/views/events/_cta.html.erb' });
+assert.deepEqual(io.opened, { file: 'app/views/events/_cta.html.erb', launch: false }, 'from another machine the proxy only resolves the file');
+assert.equal(io.navigated, 'vscode://open/app/views/events/_cta.html.erb', 'and the browser follows the editor URL');
+dom.reconfigure({ url: 'http://localhost/events/1' }); io.navigated = undefined;
+q('.open').click(); await sleep(10);
+assert.deepEqual(io.opened, { file: 'app/views/events/_cta.html.erb', launch: true }, 'on the proxy machine the proxy launches the editor');
+assert.equal(io.navigated, undefined, 'and the browser does not navigate');
+dom.reconfigure({ url: 'http://x/events/1' });
+q('.copypath').click(); await sleep(10);
+assert.equal(io.copied, 'app/views/events/_cta.html.erb', 'Copy copies the path');
 const sv = Object.assign(d.createElement('div'), { __svelte_meta: { loc: { file: 'src/routes/+page.svelte', line: 4, column: 2 } } });
 const comp = Object.assign(d.createElement('span'), { __vueParentComponent: { type: { name: 'PriceTag' } } });
 const card = Object.assign(d.createElement('i'), { __reactFiber$x: { type: { name: 'Card' }, _debugSource: { fileName: '/app/src/Card.tsx', lineNumber: 12 } } });
 d.body.append(sv, comp, card);
 tap(sv); q('.open').click(); await sleep(10);
-assert.deepEqual(io.opened, { file: 'src/routes/+page.svelte', line: 4, column: 2 }, 'Svelte hint opens at line and column');
+assert.deepEqual(io.opened, { file: 'src/routes/+page.svelte', line: 4, column: 2, launch: false }, 'Svelte hint opens at line and column');
+q('.copypath').click(); await sleep(10);
+assert.equal(io.copied, 'src/routes/+page.svelte:4:2', 'Copy includes line and column');
 tap(card); q('.open').click(); await sleep(10);
-assert.deepEqual(io.opened, { file: '/app/src/Card.tsx', line: 12 }, 'React _debugSource hint opens at the line');
+assert.deepEqual(io.opened, { file: '/app/src/Card.tsx', line: 12, launch: false }, 'React _debugSource hint opens at the line');
 tap(card);
 assert.ok(!shown('.locate'), 'no Locate when the file is known');
 tap(comp);
 assert.ok(!shown('.open'), 'no Open for a component name only');
+assert.ok(!shown('.copypath'), 'nor Copy');
 assert.ok(shown('.locate'), 'Locate asks the agent instead');
 type('half typed'); io.sent = undefined;
 q('.locate').click(); await sleep(10);
@@ -121,10 +136,15 @@ assert.ok(shown('.panel'), 'the note panel stays open');
 assert.equal(field().value, 'half typed', 'the draft text is kept');
 assert.equal(q('.count').textContent, '0', 'a locate request is not a note');
 w.localStorage.setItem('__pe_autoreload', '1');
-const update: ServerEvent = { type: 'update', item: { id: 'r2', kind: 'locate', status: 'done', message: 'opened src/PriceTag.vue:3', label: 'x', prompt: 'x' } };
+const update: ServerEvent = { type: 'update', item: { id: 'r2', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
 must(io.es).onmessage({ data: JSON.stringify(update) });
 await sleep(0);
-assert.match(q('.toasts').textContent, /opened src\/PriceTag\.vue:3/, 'the result shows as a toast');
+assert.match(q('.toasts').textContent, /found src\/PriceTag\.vue:3/, 'the result shows as a toast');
+const [tOpen, tCopy] = [...R.querySelectorAll<HTMLElement>('.toast button')];
+must(tCopy).click(); await sleep(10);
+assert.equal(io.copied, 'src/PriceTag.vue:3', 'the toast offers Copy');
+must(tOpen).click(); await sleep(10);
+assert.deepEqual(io.opened, { file: 'src/PriceTag.vue', line: 3, launch: false }, 'and Open');
 assert.ok(shown('.panel'), 'a locate result never reloads the page (the draft would be lost)');
 w.localStorage.removeItem('__pe_autoreload');
 q('.cancel').click();
@@ -196,7 +216,7 @@ tap(comp); io.sent = undefined; io.editor = undefined;
 q('.edit').click(); await sleep(10);
 assert.equal(sent().edit, true, 'the agent learns the file is for the editor here');
 io.disk = { file: 'src/PriceTag.vue', content: '<template/>', etag: 'v1' };
-const found: ServerEvent = { type: 'update', item: { id: 'r3', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', open: { file: 'src/PriceTag.vue', line: 3 } } };
+const found: ServerEvent = { type: 'update', item: { id: 'r3', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
 must(io.es).onmessage({ data: JSON.stringify(found) });
 await sleep(10);
 assert.equal(io.read, 'src/PriceTag.vue');

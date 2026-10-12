@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Item, PublicItem, SourceFile } from '../src/protocol.ts';
+import type { Item, OpenResult, PublicItem, SourceFile } from '../src/protocol.ts';
 import { startFixture } from './fixture-server.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -106,7 +106,10 @@ try {
     const open = (body: object) => fetch(P + '/__pe/open', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await open({ file: 'test/fixture-server.ts', line: 6, column: 3 });
     assert.equal(r.status, 200);
-    assert.equal((await r.json() as { file: string }).file, 'test/fixture-server.ts');
+    const res = await r.json() as OpenResult;
+    assert.equal(res.file, 'test/fixture-server.ts');
+    assert.equal(res.abs, path.resolve('test/fixture-server.ts'));
+    assert.match(res.url, new RegExp(`^vscode://vscode-remote/ssh-remote\\+[^/]+@[^/]+${res.abs.replace(/[.+]/g, '\\$&')}:6:3$`), 'with the Remote-SSH URL for other machines');
     for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
     assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.ts')} 6 3`);
     assert.equal((await open({ file: path.resolve('package.json') })).status, 200, 'absolute paths inside the project are fine');
@@ -115,6 +118,10 @@ try {
     assert.equal((await open({ file: 'app/views/missing.html.erb' })).status, 404);
     assert.equal((await open({})).status, 400);
     assert.equal((await fetch(P + '/__pe/open', { method: 'POST', body: '{"file":"package.json"}' })).status, 401, 'needs the auth cookie');
+    await sleep(300); fs.rmSync(OPENED, { force: true }); // the package.json launch above writes late
+    assert.equal((await open({ file: 'package.json', launch: false })).status, 200);
+    await sleep(300);
+    assert.equal(fs.existsSync(OPENED), false, 'launch: false only resolves');
   });
   // a scratch file inside the project, git-tracked or not but not ignored, so the browser editor may write it
   const SCRATCH = `test/scratch-${PPORT}.txt`, IGNORED = `dist/scratch-${PPORT}.txt`, BINARY = `test/scratch-${PPORT}.bin`;
@@ -194,7 +201,7 @@ try {
     const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^ {2}r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
-  await t('locate: the agent finds the file and opens it with done --open', async () => {
+  await t('locate: the agent finds the file and hands it back with done --open', async () => {
     const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
     let out = ''; waiter.stdout.on('data', (d: Buffer) => { out += d.toString(); });
     await sleep(300);
@@ -214,10 +221,11 @@ try {
     assert.match(cli('status', '--port', String(PPORT)), /^ {2}r2,working,/m, 'and the request stays open');
     const done = cli('done', 'r2', '--open', 'test/fixture-server.ts:6:3', '--port', String(PPORT));
     assert.match(done, /wait --port \d+/);
-    for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
-    assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.ts')} 6 3`);
+    await sleep(300);
+    assert.equal(fs.existsSync(OPENED), false, 'nothing is launched: the browser offers Open / Copy');
     const item = await (await get('/__pe/requests/r2')).json() as Item;
-    assert.equal(item.status, 'done'); assert.equal(item.message, 'opened test/fixture-server.ts:6:3');
+    assert.equal(item.status, 'done'); assert.equal(item.message, 'found test/fixture-server.ts:6:3');
+    assert.deepEqual(item.file, { file: 'test/fixture-server.ts', line: 6, column: 3 }, 'the browser gets the file');
   });
   await t('locate for the browser editor: done --open hands the file to the browser', async () => {
     const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
@@ -236,7 +244,7 @@ try {
     const item = await (await get('/__pe/requests')).json() as PublicItem[];
     const r3 = item.find(i => i.id === 'r3');
     assert.equal(r3?.status, 'done'); assert.equal(r3.message, 'found test/fixture-server.ts:6');
-    assert.deepEqual(r3.open, { file: 'test/fixture-server.ts', line: 6 }, 'the browser learns the file');
+    assert.deepEqual(r3.file, { file: 'test/fixture-server.ts', line: 6 }, 'the browser learns the file');
     await sleep(300);
     assert.equal(fs.existsSync(OPENED), false, 'no desktop editor');
   });

@@ -1,9 +1,10 @@
-<!-- Status messages at the top; a finished request offers Reload and the auto-reload switch. -->
+<!-- Status messages at the top; a finished request offers Reload and the auto-reload switch, a located file Open / Copy. -->
 <script lang="ts">
+  import type { FileRef } from '../protocol.ts';
   import type { Toast } from './context.ts';
   import { autoReload, setAutoReload } from './storage.ts';
 
-  const { toasts }: { toasts: Toast[] } = $props();
+  const { toasts, onopen, oncopy }: { toasts: Toast[]; onopen: (f: FileRef) => void; oncopy: (f: FileRef) => void } = $props();
 </script>
 
 <div class="toasts">
@@ -16,6 +17,13 @@
           {#if t.reload === 'agent'}
             <label><input type="checkbox" checked={autoReload()} onchange={e => { setAutoReload(e.currentTarget.checked); }} />auto</label>
           {/if}
+        </span>
+      {/if}
+      {#if t.file}
+        {@const f = t.file}
+        <span class="actions">
+          <button type="button" onclick={() => { onopen(f); }}>↗ Open</button>
+          <button type="button" onclick={() => { oncopy(f); }}>⧉ Copy</button>
         </span>
       {/if}
     </div>

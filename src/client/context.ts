@@ -4,12 +4,11 @@ import type { ElementContext, FileRef, Hints, Note, NoteKind, Rect } from '../pr
 // What the user picked: live elements, not yet snapshotted.
 export interface Target { kind: NoteKind; els: Element[]; text?: string; area?: Rect }
 // The note being written, with what the panel shows about it.
-export interface Draft extends Target { desc: string; hint: string; file: FileHint | null; top: boolean }
+export interface Draft extends Target { desc: string; hint: string; file: FileRef | null; top: boolean }
 // A saved note keeps its live elements (null when gone) to draw its marks.
 export type LiveNote = Note & { els: (Element | null)[] };
-export type FileHint = FileRef;
-// A status message; `reload` adds the Reload button: 'agent' (a finished request) also the auto-reload switch.
-export interface Toast { id: number; text: string; reload: false | 'agent' | 'button' }
+// A status message; `reload` adds the Reload button ('agent', a finished request: also the auto-reload switch), `file` the Open / Copy buttons.
+export interface Toast { id: number; text: string; reload: false | 'agent' | 'button'; file?: FileRef | undefined }
 // A rectangle in viewport coordinates.
 export interface Box { left: number; top: number; width: number; height: number }
 
@@ -100,7 +99,7 @@ function hints(el: Element): Hints {
 }
 export const bestHint = (h: Hints) => h.svelte[0] || h.rails.at(-1) || h.vue[0] || h.react[0] || '';
 // { file, line?, column? } from the best hint that names a file, or null (a bare component name)
-export function fileHint(h: Hints): FileHint | null {
+export function fileHint(h: Hints): FileRef | null {
   for (const s of [h.svelte[0], h.rails.at(-1), h.vue[0], h.react.find(r => r.endsWith(')'))]) {
     const m = s && (/\((.+):(\d+)\)$/.exec(s) ?? /^([^\s()]+\.\w+)(?::(\d+))?(?::(\d+))?$/.exec(s));
     if (m?.[1]) return { file: m[1], ...(m[2] ? { line: +m[2] } : {}), ...(m[3] ? { column: +m[3] } : {}) };
