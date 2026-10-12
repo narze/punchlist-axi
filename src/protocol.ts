@@ -33,17 +33,26 @@ export interface Note<E = ElementContext> {
   elements: E[];
 }
 
+// A project file (path relative to the project), at a line and column when known.
+export interface FileRef { file: string; line?: number; column?: number }
+
+// The in-browser editor: GET /file?path= answers SourceFile, POST /file takes SourceFile and answers it with the new etag.
+// A save whose etag no longer matches the file on disk gets 409 with the current etag.
+export interface SourceFile { file: string; content: string; etag: string }
+
 export interface Payload<E = ElementContext> {
   kind?: 'locate';  // the user asked the agent to find the file; no notes to apply
+  edit?: boolean;   // locate for the in-browser editor: `done --open` hands the file to the browser, no desktop editor
   notes: Note<E>[];
   viewport?: { w: number; h: number };
 }
 
 export type Status = 'pending' | 'working' | 'done' | 'failed';
 
-export interface Item { id: string; status: Status; createdAt: string; payload: Payload<LooseElement>; message: string | null }
+export interface Item { id: string; status: Status; createdAt: string; payload: Payload<LooseElement>; message: string | null; open?: FileRef }
 
 // What the browser sees of an item (no element context).
-export interface PublicItem { id: string; kind?: 'locate'; status: Status; message: string | null; label: string; prompt: string }
+// `open`: the file a locate request for the in-browser editor was answered with.
+export interface PublicItem { id: string; kind?: 'locate'; status: Status; message: string | null; label: string; prompt: string; open?: FileRef }
 
 export type ServerEvent = { type: 'snapshot'; items: PublicItem[] } | { type: 'update'; item: PublicItem };

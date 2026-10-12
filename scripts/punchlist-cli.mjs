@@ -2962,7 +2962,8 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
-      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor; when no file is known, \u{1F50E} Locate asks you to find it",
+      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor; when no file is known, \u{1F50E} Locate asks you to find it. \u270E turns on edit mode: \u270E Edit in the note panel edits the file right in the page",
+      "The user can save files from the page while you work: re-read a file before you edit it",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]
@@ -3040,7 +3041,14 @@ function cmdServe(args) {
     const n = p.notes.length;
     return { label: n === 1 ? (p.notes[0]?.comment ?? "").slice(0, 60) : `${n} notes`, prompt: p.notes.map((x) => x.comment).join(" | ") };
   };
-  const publicItem = (it) => ({ id: it.id, ...it.payload.kind ? { kind: it.payload.kind } : {}, status: it.status, message: it.message, ...summarize(it.payload) });
+  const publicItem = (it) => ({
+    id: it.id,
+    ...it.payload.kind ? { kind: it.payload.kind } : {},
+    status: it.status,
+    message: it.message,
+    ...summarize(it.payload),
+    ...it.open ? { open: it.open } : {}
+  });
   const broadcast = (obj) => {
     const line = `data: ${JSON.stringify(obj)}
 
@@ -3139,8 +3147,8 @@ function cmdServe(args) {
   }
   async function handleApi(req, res, url) {
     const p = url.pathname.slice(PREFIX.length);
-    if (p === "/client.js") {
-      const js = fs.readFileSync(path.join(DIR, "client.js"));
+    if (p === "/client.js" || p === "/editor.js") {
+      const js = fs.readFileSync(path.join(DIR, p.slice(1)));
       const gz = /\bgzip\b/.test(req.headers["accept-encoding"] ?? "");
       res.writeHead(200, {
         "content-type": "text/javascript; charset=utf-8",
@@ -3209,11 +3217,67 @@ function cmdServe(args) {
         return;
       }
       if (typeof body.file !== "string" || !body.file) {
-        json(res, 400, { error: "expected { file, line?, column? }" });
+        json(res, 400, { error: "expected { file, line?, column?, request? }" });
         return;
       }
-      const r = openInEditor(body.file, Number(body.line) || 0, Number(body.column) || 0);
+      const line = Number(body.line) || 0, column = Number(body.column) || 0;
+      const it = typeof body.request === "string" ? items.find((i) => i.id === body.request) : void 0;
+      if (it?.payload.edit) {
+        const f = editable(body.file);
+        if ("error" in f) {
+          json(res, f.status, { error: f.error });
+          return;
+        }
+        it.open = { file: f.rel, ...line ? { line } : {}, ...column ? { column } : {} };
+        log(`found ${f.rel} for the browser editor`);
+        json(res, 200, { file: f.rel, browser: true });
+        return;
+      }
+      const r = openInEditor(body.file, line, column);
       json(res, r.status, r.status === 200 ? { file: r.file } : { error: r.error });
+      return;
+    }
+    if (p === "/file" && req.method === "GET") {
+      const f = editable(url.searchParams.get("path") ?? "");
+      if ("error" in f) {
+        json(res, f.status, { error: f.error });
+        return;
+      }
+      const buf = fs.readFileSync(f.real);
+      if (buf.includes(0)) {
+        json(res, 415, { error: `${f.rel} is a binary file` });
+        return;
+      }
+      json(res, 200, { file: f.rel, content: buf.toString("utf8"), etag: etag(buf) });
+      return;
+    }
+    if (p === "/file" && req.method === "POST") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch (e) {
+        json(res, 400, { error: errorMessage(e) });
+        return;
+      }
+      const { file, content, etag: base } = body;
+      if (typeof file !== "string" || typeof content !== "string" || typeof base !== "string") {
+        json(res, 400, { error: "expected { file, content, etag }" });
+        return;
+      }
+      const f = editable(file);
+      if ("error" in f) {
+        json(res, f.status, { error: f.error });
+        return;
+      }
+      const now = etag(fs.readFileSync(f.real));
+      if (now !== base) {
+        json(res, 409, { error: `${f.rel} changed on disk since it was opened`, etag: now });
+        return;
+      }
+      const buf = Buffer.from(content, "utf8");
+      fs.writeFileSync(f.real, buf);
+      log(`saved ${f.rel} from the browser editor (${buf.length} bytes)`);
+      json(res, 200, { file: f.rel, etag: etag(buf) });
       return;
     }
     if (p === "/next" && req.method === "GET") {
@@ -3292,7 +3356,7 @@ function cmdServe(args) {
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
   });
-  function openInEditor(file, line, column) {
+  function projectFile(file) {
     const root = process.cwd();
     const inside = (dir, f) => f === dir || f.startsWith(dir + path.sep);
     const abs = path.resolve(root, file);
@@ -3303,13 +3367,35 @@ function cmdServe(args) {
     } catch {
       return { status: 404, error: `${file} not found in ${root}` };
     }
-    if (!inside(fs.realpathSync(root), real)) return { status: 403, error: "file is outside the project" };
+    const realRoot = fs.realpathSync(root);
+    if (!inside(realRoot, real)) return { status: 403, error: "file is outside the project" };
+    return { abs, real, rel: path.relative(root, abs), realRoot };
+  }
+  function editable(file) {
+    const f = projectFile(file);
+    if ("error" in f) return f;
+    const realRel = path.relative(f.realRoot, f.real);
+    if ([...f.rel.split(path.sep), ...realRel.split(path.sep)].some((s) => s.startsWith(".") || s === "node_modules"))
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (dotfiles and node_modules are off limits)` };
+    try {
+      execFileSync("git", ["check-ignore", "-q", "--", realRel], { cwd: f.realRoot, stdio: "ignore" });
+      return { status: 403, error: `${f.rel} cannot be edited in the browser (git ignores it)` };
+    } catch {
+    }
+    const stat = fs.statSync(f.real);
+    if (!stat.isFile()) return { status: 404, error: `${f.rel} is not a file` };
+    if (stat.size > 2e6) return { status: 413, error: `${f.rel} is too large to edit in the browser` };
+    return f;
+  }
+  const etag = (buf) => crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+  function openInEditor(file, line, column) {
+    const f = projectFile(file);
+    if ("error" in f) return f;
     const failures = [];
-    (0, import_launch_editor.default)(abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
+    (0, import_launch_editor.default)(f.abs + (line ? `:${line}${column ? `:${column}` : ""}` : ""), (_f, msg) => failures.push(msg ?? "no editor found (set LAUNCH_EDITOR or EDITOR)"));
     if (failures[0]) return { status: 500, error: failures[0] };
-    const rel = path.relative(root, abs);
-    log(`opened ${rel}${line ? `:${line}` : ""} in the editor`);
-    return { status: 200, file: rel };
+    log(`opened ${f.rel}${line ? `:${line}` : ""} in the editor`);
+    return { status: 200, file: f.rel };
   }
   function log(msg) {
     console.log(`[punchlist ${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${msg}`);
@@ -3390,7 +3476,7 @@ function requestView(it, port, full = false) {
     }))
   };
   if (it.payload.kind === "locate") return { ...view, request: { ...view.request, kind: "locate" }, help: [
-    "The user wants to open the source of this target in their editor: find the file (and line) that renders it. Lookup only - do not edit anything",
+    `The user wants to open the source of this target ${it.payload.edit ? "in the editor in their browser (only source files: no dotfiles, node_modules or git-ignored files)" : "in their editor"}: find the file (and line) that renders it. Lookup only - do not edit anything`,
     "Use the hints first (a component name: grep for its definition), then visible text, ids, data-* attributes or uncommon classes",
     `Run \`${PE} done ${it.id} --open <file>[:line[:col]] --port ${port}\` to open it (a path relative to the project); --failed "<why>" if you cannot find it`
   ] };
@@ -3435,10 +3521,13 @@ async function cmdDone(args) {
   let message = args._.slice(1).join(" ") || null;
   if (args.open && !args.failed) {
     const [, file, line, column] = /^(.+?)(?::(\d+))?(?::(\d+))?$/.exec(args.open) ?? [];
-    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column }) });
+    const o = await api(st, "/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, line, column, request: id }) });
     const b = await o.json().catch(() => ({}));
-    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [`Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`]);
-    message ??= `opened ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
+    if (!o.ok) throw new AxiError(`could not open ${args.open}: ${b.error ?? o.status}`, "OPEN_FAILED", [
+      `Fix the path and run \`${PE} done ${id} --open <file>[:line[:col]] --port ${st.port}\` again`,
+      ...o.status === 403 ? [`If no editable file renders it, run \`${PE} done ${id} "<why>" --failed --port ${st.port}\``] : []
+    ]);
+    message ??= `${b.browser ? "found" : "opened"} ${b.file ?? args.open}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
   }
   const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
     method: "POST",
@@ -3604,7 +3693,8 @@ examples:
   Report a request back to the browser (shown as a toast). Run it once per request.
   If some notes fail, still do the others and name the failed ones in the message.
   --failed   nothing could be done; the message says why
-  --open     open this project file in the user's editor first (answers a locate request)
+  --open     open this project file in the user's editor first (answers a locate request;
+             for a locate from the in-browser editor the browser opens it instead)
 examples:
   ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
   ${PE} done r2 "need the new copy for the hero" --failed

@@ -1,11 +1,13 @@
 <!-- The picker: page gestures in, toolbar + note panel + tray + overlay out. State lives here; children only render. -->
 <script lang="ts">
   import { flushSync, onMount } from 'svelte';
-  import type { Note, Payload, PublicItem } from '../protocol.ts';
-  import { errorMessage, listen, post } from './api.ts';
+  import type { FileRef, Note, Payload, PublicItem, SourceFile } from '../protocol.ts';
+  import { API, ApiError, errorMessage, get, listen, post } from './api.ts';
+  import type * as EditorModule from './editor.ts';
   import { bestHint, describe, elementContext, fileHint, markdown, here, type Box, type Draft, type LiveNote, type Target, type Toast } from './context.ts';
   import { freezePage, setPickMode, watchPage } from './page.ts';
-  import { autoReload, restore, save, withoutEls } from './storage.ts';
+  import { autoReload, editMode, restore, save, setEditMode, withoutEls } from './storage.ts';
+  import EditorPanel from './EditorPanel.svelte';
   import NotePanel from './NotePanel.svelte';
   import Overlay from './Overlay.svelte';
   import Toasts from './Toasts.svelte';
@@ -24,13 +26,19 @@
   let chip = $state.raw<{ el: Element; text: string; left: number; top: number } | null>(null);
   let toasts = $state.raw<Toast[]>([]);
   let busy = $state(0);
+  let editing = $state(editMode());
+  // the open file: `src` once loaded; `conflict` is the etag on disk after a refused save; `discarding` = Close was pressed once with changes
+  interface OpenFile { ref: FileRef; src: SourceFile | null; dirty: boolean; saving: boolean; conflict: string | null; discarding: boolean }
+  let file = $state.raw<OpenFile | null>(null);
+  let codeHost = $state<HTMLElement>();
+  let code: EditorModule.CodeEditor | null = null;
   let pageEl = (_: Node | null | undefined): _ is Element => false;
 
   function setNotes(next: LiveNote[]) { notes = next; save(next); }
 
   let toastId = 0;
-  function toast(text: string, opts: { ms?: number; reload?: boolean } = {}) {
-    const t = { id: ++toastId, text, reload: opts.reload ?? false };
+  function toast(text: string, opts: { ms?: number; reload?: Toast['reload'] } = {}) {
+    const t: Toast = { id: ++toastId, text, reload: opts.reload ?? false };
     toasts = [...toasts, t];
     setTimeout(() => { toasts = toasts.filter(x => x !== t); }, opts.reload ? 15000 : opts.ms ?? 5000);
   }
@@ -85,11 +93,87 @@
     if (!draft) return;
     const { elements: [el], ...n } = snapshot(draft);
     try {
-      const payload: Payload = { kind: 'locate', notes: [{ ...n, comment: 'Find the source file of this element', elements: el ? [el] : [] }] };
+      const payload: Payload = { kind: 'locate', ...(editing ? { edit: true } : {}), notes: [{ ...n, comment: 'Find the source file of this element', elements: el ? [el] : [] }] };
       await post('/requests', payload);
-      toast('🔎 Asked the agent to find this file', { ms: 2500 });
+      toast(`🔎 Asked the agent to find this file${editing ? ' for the editor here' : ''}`, { ms: 2500 });
     } catch (e) { toast(`❌ Locate failed: ${errorMessage(e)}`); }
   }
+  // ---------------------------------------------------------------- in-browser editor
+  function setEditing(on: boolean) {
+    editing = on;
+    setEditMode(on);
+    toast(on ? '✎ Edit mode on: ✎ Edit in a note opens its file here' : '✎ Edit mode off', { ms: 2500 });
+  }
+  // CodeMirror is its own bundle, loaded on first use; a failed load is retried next time
+  let editorModule: Promise<typeof EditorModule> | null = null;
+  function loadEditor() {
+    const url = `${API}/editor.js`; // a variable, so esbuild leaves the import to the browser
+    editorModule ??= (import(url) as Promise<typeof EditorModule>).catch((e: unknown) => { editorModule = null; throw e; });
+    return editorModule;
+  }
+  // updates the open file, unless it was closed (or another one opened) in the meantime
+  const isOpen = (ref: FileRef) => file?.ref === ref;
+  function patch(ref: FileRef, p: Partial<OpenFile>) { if (file?.ref === ref) file = { ...file, ...p }; }
+  async function openEditor(ref: FileRef) {
+    if (file?.dirty) { toast('✎ Save or discard the open file first'); return; }
+    closeEditor();
+    // annotate mode blocks touch scrolling, the editor's too; back on when the editor closes
+    if (picking) { setPicking(false); pickAfterEdit = true; }
+    file = { ref, src: null, dirty: false, saving: false, conflict: null, discarding: false };
+    try {
+      const [mod, src] = await Promise.all([loadEditor(), get<SourceFile>(`/file?path=${encodeURIComponent(ref.file)}`)]);
+      if (!isOpen(ref)) return;
+      patch(ref, { src });
+      flushSync(); // the code box is in the DOM
+      if (!codeHost) return;
+      code = mod.createEditor(codeHost, { root: must(host.shadowRoot), file: src.file, doc: src.content, line: ref.line, column: ref.column,
+        onchange: dirty => { patch(ref, { dirty, discarding: false }); }, onsave: () => { void saveFile(); } });
+      code.focus();
+    } catch (e) {
+      if (isOpen(ref)) file = null;
+      toast(`❌ Edit failed: ${errorMessage(e)}`);
+    }
+  }
+  // `etag`: overwrite what is on disk now (after a conflict)
+  async function saveFile(etag?: string) {
+    const f = file, c = code;
+    if (!f?.src || !c || f.saving) return;
+    const { ref, src } = f, content = c.value();
+    patch(ref, { saving: true });
+    try {
+      const r = await post<{ file: string; etag: string }>('/file', { file: src.file, content, etag: etag ?? src.etag } satisfies SourceFile);
+      if (isOpen(ref)) c.saved(content);
+      patch(ref, { src: { ...src, content, etag: r.etag }, saving: false, conflict: null });
+      toast(`💾 Saved ${r.file}`, { reload: 'button' });
+    } catch (e) {
+      const conflict = e instanceof ApiError && e.status === 409 && typeof e.body['etag'] === 'string' ? e.body['etag'] : null;
+      patch(ref, { saving: false, ...(conflict ? { conflict } : {}) });
+      if (!conflict) toast(`❌ Save failed: ${errorMessage(e)}`);
+    }
+  }
+  // after a conflict: drop the edits and take the file as it is on disk
+  async function reloadFile() {
+    const f = file, c = code;
+    if (!f?.src || !c) return;
+    try {
+      const src = await get<SourceFile>(`/file?path=${encodeURIComponent(f.src.file)}`);
+      if (!isOpen(f.ref)) return;
+      c.reset(src.content);
+      patch(f.ref, { src, conflict: null });
+    } catch (e) { toast(`❌ Load failed: ${errorMessage(e)}`); }
+  }
+  // unsaved changes take a second press
+  function requestClose() {
+    if (file?.dirty && !file.discarding) { file = { ...file, discarding: true }; return; }
+    closeEditor();
+  }
+  let pickAfterEdit = false;
+  function closeEditor() {
+    code?.destroy(); code = null; file = null;
+    if (pickAfterEdit) { pickAfterEdit = false; setPicking(true); }
+  }
+  const must = <T,>(x: T | null | undefined): T => { if (x == null) throw new Error('no shadow root'); return x; };
+
   function parent() { const p = draft?.els[0]?.parentElement; if (pageEl(p)) startDraft({ kind: 'element', els: [p] }); }
   function child() { const c = draft?.els[0]?.firstElementChild; if (c) startDraft({ kind: 'element', els: [c] }); }
 
@@ -129,17 +213,20 @@
     const over = it.status === 'done' || it.status === 'failed';
     // a locate result never reloads: the draft would be lost
     if (it.kind === 'locate') {
-      if (over) toast(`${it.status === 'done' ? '↗' : '❌'} ${it.message ?? (it.status === 'done' ? 'Opened' : 'Agent could not find the file')}`);
+      if (over) toast(`${it.status === 'done' ? (it.open ? '✎' : '↗') : '❌'} ${it.message ?? (it.status === 'done' ? 'Opened' : 'Agent could not find the file')}`);
+      if (it.status === 'done' && it.open) void openEditor(it.open);
       return;
     }
     if (!over) return;
-    if (it.status === 'done' && autoReload()) { location.reload(); return; }
-    toast(`${it.status === 'done' ? '✅' : '❌'} ${it.id}${it.message ? ': ' + it.message : ''}`, { reload: true });
+    // never reload over unsaved edits
+    if (it.status === 'done' && autoReload() && !file?.dirty) { location.reload(); return; }
+    toast(`${it.status === 'done' ? '✅' : '❌'} ${it.id}${it.message ? ': ' + it.message : ''}`, { reload: 'agent' });
   }
 
   function onKey(e: KeyboardEvent) {
     if (e.altKey && e.shiftKey && e.code === 'KeyE') { e.preventDefault(); cancelDraft(); setPicking(!picking); }
     else if (e.altKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); setFrozen(!frozen); }
+    else if (e.key === 'Escape' && file) { /* the editor has its own Escape uses (search, completion); Close is a button */ }
     else if (e.key === 'Escape' && (picking || draft || trayOpen)) {
       if (draft) cancelDraft(); else if (picking) setPicking(false); else trayOpen = false;
     }
@@ -176,14 +263,22 @@
     onpointerdown={e => { e.preventDefault(); }} onclick={pickSelection}>💬 Annotate</button>
 {/if}
 {#if draft}
-  <NotePanel {draft} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={openFile} onlocate={locate} onparent={parent} onchild={child} />
+  <NotePanel {draft} editMode={editing} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={openFile}
+    onedit={() => { if (draft?.file) void openEditor(draft.file); }} onlocate={locate} onparent={parent} onchild={child} />
+{/if}
+{#if file}
+  <EditorPanel file={file.src?.file ?? file.ref.file} ready={file.src !== null} dirty={file.dirty} saving={file.saving}
+    conflict={file.conflict !== null} discarding={file.discarding} bind:host={codeHost}
+    onsave={() => { void saveFile(); }} onclose={requestClose} onload={() => { void reloadFile(); }}
+    onoverwrite={() => { void saveFile(file?.conflict ?? undefined); }} />
 {/if}
 {#if trayOpen}
   <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send} />
 {/if}
-<Toolbar {picking} {frozen} count={notes.length} {busy}
+<Toolbar {picking} {frozen} {editing} count={notes.length} {busy}
   onpick={() => { cancelDraft(); setPicking(!picking); }}
   onfreeze={() => { setFrozen(!frozen); }}
+  onedit={() => { setEditing(!editing); }}
   ontray={() => { cancelDraft(); trayOpen = !trayOpen; }}
   onsend={send} />
 

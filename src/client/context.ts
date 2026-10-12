@@ -1,5 +1,5 @@
 // What the picker reads from the page: labels, selectors, source hints, and the markdown the user can copy.
-import type { ElementContext, Hints, Note, NoteKind, Rect } from '../protocol.ts';
+import type { ElementContext, FileRef, Hints, Note, NoteKind, Rect } from '../protocol.ts';
 
 // What the user picked: live elements, not yet snapshotted.
 export interface Target { kind: NoteKind; els: Element[]; text?: string; area?: Rect }
@@ -7,9 +7,9 @@ export interface Target { kind: NoteKind; els: Element[]; text?: string; area?: 
 export interface Draft extends Target { desc: string; hint: string; file: FileHint | null; top: boolean }
 // A saved note keeps its live elements (null when gone) to draw its marks.
 export type LiveNote = Note & { els: (Element | null)[] };
-export interface FileHint { file: string; line?: number; column?: number }
-// A status message; `reload` adds the Reload button and the auto-reload switch.
-export interface Toast { id: number; text: string; reload: boolean }
+export type FileHint = FileRef;
+// A status message; `reload` adds the Reload button: 'agent' (a finished request) also the auto-reload switch.
+export interface Toast { id: number; text: string; reload: false | 'agent' | 'button' }
 // A rectangle in viewport coordinates.
 export interface Box { left: number; top: number; width: number; height: number }
 

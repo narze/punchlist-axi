@@ -23,7 +23,7 @@ Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --
 
 The proxy listens on port 4000, or on the next free port when 4000 is busy (like Vite). Running `start` again for the same dev server reuses its proxy. Pass `--port` to require one port.
 
-Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. 🗒 lists your notes; notes survive reloads until sent.
+Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ turns on edit mode (see below). 🗒 lists your notes; notes survive reloads until sent.
 
 Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
@@ -45,6 +45,14 @@ Each note carries hints that point the agent at the source:
 When the hint names a file, the note panel shows **↗ Open**. The proxy opens that file (at the line, when the hint has one) in the editor on the machine where the proxy runs, so it also works when you tap on a phone. It uses [launch-editor](https://github.com/vitejs/launch-editor): it finds a running editor (VS Code, Cursor, Zed, JetBrains, Sublime...), or set `LAUNCH_EDITOR` (or `EDITOR`) in the shell that runs `start`. Only files inside the directory you started the proxy from can be opened.
 
 When the hints name no file (only a component name, or nothing), the panel shows **🔎 Locate** instead. It sends a small request to your agent, which finds the file and opens it with `done <id> --open <file>[:line]`. This works with any framework, but it takes the agent's time and needs a `wait` running.
+
+## Edit in the page
+
+Press ✎ in the toolbar to turn on edit mode (remembered per browser). When the hint names a file, the note panel then shows **✎ Edit** next to ↗ Open: the file opens in a code editor ([CodeMirror](https://codemirror.net)) right in the page, at the hinted line. Save with the button or ⌘/Ctrl+S; the proxy writes the file on the dev machine, and your dev server's reload (Vite HMR, or Reload for Rails templates) shows the change. 🔎 Locate in edit mode opens the file the agent finds here instead of in your desktop editor.
+
+If the file changed on disk since you opened it (say, your agent edited it), Save is refused and you choose **Load from disk** or **Overwrite**. The editor (about 200 KB gzipped) loads only the first time you open a file.
+
+Only source files inside the project can be opened: no dotfiles (`.env`, `.git`), nothing in `node_modules`, nothing git ignores, no binary files. Anyone with the access link can save files, which is no more than they can already ask your agent to do.
 
 ## Known limits
 

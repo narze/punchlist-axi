@@ -13,7 +13,9 @@
       {#if t.reload}
         <span class="actions">
           <button type="button" onclick={() => { location.reload(); }}>Reload</button>
-          <label><input type="checkbox" checked={autoReload()} onchange={e => { setAutoReload(e.currentTarget.checked); }} />auto</label>
+          {#if t.reload === 'agent'}
+            <label><input type="checkbox" checked={autoReload()} onchange={e => { setAutoReload(e.currentTarget.checked); }} />auto</label>
+          {/if}
         </span>
       {/if}
     </div>
