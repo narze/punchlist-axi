@@ -16,7 +16,7 @@
     "scripts/punchlist-axi.mjs",
     "scripts/punchlist-cli.mjs",
     "scripts/client.js",
-    "SKILL.md"
+    "skills/punchlist/SKILL.md"
   ],
   "engines": {
     "node": ">=18"
