@@ -1938,7 +1938,7 @@ function startOutput(st, state) {
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
       "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
-      `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first`
+      `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]
   };
 }
@@ -2285,7 +2285,7 @@ async function cmdWait(args) {
     }
     if (r.status !== 204) throw new AxiError(`unexpected ${r.status} from the proxy: ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
   }
-  return { request: `none (waited ${secs}s)`, help: [`Run \`${PE} wait --port ${st.port}\` to keep listening`] };
+  return { request: `none (waited ${secs}s)`, help: [listenHelp(st.port)] };
 }
 async function cmdShow(args) {
   const id = args._[0];
@@ -2307,7 +2307,7 @@ async function cmdDone(args) {
   });
   if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, "NOT_FOUND", [`Run \`${PE} status --port ${st.port}\` to list requests`]);
   if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, "PROXY_ERROR");
-  return { request: { id, status }, help: [`Run \`${PE} wait --port ${st.port}\` for the next batch`] };
+  return { request: { id, status }, help: [listenHelp(st.port)] };
 }
 async function cmdStatus(args) {
   const st = loadState(args);
@@ -2377,6 +2377,7 @@ async function cmdSetup(args) {
   };
 }
 var PE = `node ${SCRIPT}`;
+var listenHelp = (port) => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
 var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
 
@@ -2390,7 +2391,7 @@ commands:
   setup   add a SessionStart hook so new agent sessions see running proxies
   serve   run the proxy in the foreground (debugging)
 
-loop: start -> send the user the link -> wait -> edit the source -> done -> wait ...
+loop: start -> send the user the link -> wait (in the background) -> edit the source -> done -> wait ...
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
@@ -2413,7 +2414,12 @@ examples:
   --port     proxy port (default: most recently started proxy)
   --timeout  seconds to wait (default 540, under most shell-tool limits)
   --json     raw request JSON instead of the formatted view
-  Keep re-running wait without commentary until the user tells you to stop.
+  Run wait as a background command so you stay free and your harness tells you when it exits:
+  Claude Code: Bash with run_in_background: true. Other harnesses: any background job that
+  reports its exit. No background support: run it in the foreground. Notes queue on the proxy,
+  so none are lost between runs. Run wait again after every done and every timeout, without
+  commentary, until the user tells you to stop: you hear the user only while wait runs.
+  In the background a longer --timeout (e.g. 3600) means fewer empty wake-ups.
 finding the source (in this order):
   1. svelte file:line:col (or React _debugSource) - open it directly
   2. rails templates - the last entry is the innermost partial. Needs
