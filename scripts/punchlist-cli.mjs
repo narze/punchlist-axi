@@ -2812,7 +2812,7 @@ var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
-var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v" };
+var SERVE_FLAGS = { target: "v", port: "v", host: "v", "no-auth": "b", token: "v", "idle-timeout": "v" };
 var FLAGS = {
   start: SERVE_FLAGS,
   serve: SERVE_FLAGS,
@@ -2858,6 +2858,11 @@ function normalizeTarget(t) {
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, "");
+}
+function idleTimeout(args, cmd) {
+  const raw = args["idle-timeout"] ?? "3600", secs = Number(raw);
+  if (!raw.trim() || !(secs >= 0)) throw usageError("--idle-timeout must be a number of seconds (0 = never exit)", cmd);
+  return secs;
 }
 function statePath(port) {
   return path.join(STATE_DIR, `${port}.json`);
@@ -2982,6 +2987,7 @@ function portFree(port, host) {
 }
 async function cmdStart(args) {
   const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
+  idleTimeout(args, "start");
   const auto = args.port == null, base = BASE_PORT();
   let port = auto ? base : Number(args.port);
   if (auto) {
@@ -3025,6 +3031,7 @@ function cmdServe(args) {
   const host = args.host ?? "127.0.0.1";
   const noAuth = args["no-auth"] === true;
   const token = args.token ?? crypto.randomBytes(12).toString("base64url");
+  const idleSecs = idleTimeout(args, "serve");
   const targetPort = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   const lib = target.protocol === "https:" ? https : http;
   const selfOrigins = [target.origin];
@@ -3248,6 +3255,8 @@ function cmdServe(args) {
     json(res, 404, { error: "not found" });
   }
   const server = http.createServer((req, res) => {
+    touch();
+    res.on("close", touch);
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === `${PREFIX}/auth`) {
       const next = url.searchParams.get("next");
@@ -3272,6 +3281,7 @@ function cmdServe(args) {
     proxy(req, res);
   });
   server.on("upgrade", (req, socket, head) => {
+    touch();
     if (!authed(req)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return;
@@ -3338,6 +3348,17 @@ function cmdServe(args) {
   };
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
+  const idle = idleSecs > 0 ? setTimeout(() => {
+    if (waiters.size) {
+      touch();
+      return;
+    }
+    log(`no requests for ${idleSecs}s, exiting`);
+    cleanup();
+  }, Math.min(idleSecs * 1e3, 2 ** 31 - 1)) : null;
+  function touch() {
+    idle?.refresh();
+  }
   return new Promise(() => void 0);
 }
 function isPayload(x) {
@@ -3558,7 +3579,7 @@ loop: start -> send the user the link -> wait (in the background) -> edit the so
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
-  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth] [--idle-timeout 3600]
   Start the proxy in the background and print the link for the user. Safe to re-run: without
   --port it reuses the proxy for the same target. Always pass the printed --port to later commands.
   Find the dev server port from running processes, Procfile.dev, bin/dev, package.json scripts or
@@ -3568,6 +3589,9 @@ var HELP = {
              set PUNCHLIST_PORT to start from another port)
   --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
   --no-auth  no access token (purely local use only)
+  --idle-timeout
+             seconds without any request (page loads, a running wait) before the proxy
+             exits on its own (default 3600; 0 = never). After that, run start again
 examples:
   ${PE} start --target 5173
   ${PE} start --target http://localhost:3000 --port 4001`,
