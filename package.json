@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Click-to-edit for any running web app: a proxy injects a picker, your coding agent pulls the batch of notes and edits the source.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narze/punchlist-axi.git"
+  },
+  "homepage": "https://github.com/narze/punchlist-axi#readme",
   "bin": {
     "punchlist-axi": "scripts/punchlist-axi.mjs"
   },
@@ -20,13 +26,11 @@
     "pretest": "pnpm run --silent build",
     "test": "node test/cli.test.mjs && node test/proxy.test.mjs && node test/client.test.mjs && node test/drag.test.mjs"
   },
-  "dependencies": {
-    "axi-sdk-js": "^0.1.13",
-    "launch-editor": "^2.14.2"
-  },
   "devDependencies": {
+    "axi-sdk-js": "^0.1.13",
     "esbuild": "^0.28.2",
-    "jsdom": "^24.0.0"
+    "jsdom": "^24.0.0",
+    "launch-editor": "^2.14.2"
   },
   "packageManager": "pnpm@12.11.2"
 }
