@@ -7,7 +7,7 @@ See README.md for what this is. Layout: `src/cli.mjs` (proxy + CLI source, uses 
 1. **No changes to the target app.** Must work in front of any server: Rails (ERB, Turbo, ActionCable), SvelteKit/Vite, React, static.
 2. **Works on a phone over Tailscale.** This is why it is a proxy and not a browser extension.
 3. **AI-agnostic.** Any agent that can run shell commands must be able to drive it. No MCP requirement, no vendor CLI baked in.
-4. **Only `node` (>= 18) or `bun` needed at runtime.** Source may use libraries (decision 2026-10-12: `axi-sdk-js`), but releases ship one bundled file.
+4. **Only `node` (>= 18) or `bun` needed at runtime.** Source may use libraries (decision 2026-10-12: `axi-sdk-js`), but releases ship bundled files (`scripts/punchlist.mjs` + `scripts/punchlist-cli.mjs`), no install.
 
 ## Decisions (do not reopen without a reason)
 
