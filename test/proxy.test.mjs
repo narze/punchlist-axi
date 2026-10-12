@@ -23,6 +23,8 @@ try {
     startOut = cli('start', '--target', String(TPORT), '--port', String(PPORT));
     assert.match(startOut, /__pe\/auth\?token=/);
     assert.match(startOut, /wait --port \d+/, 'tells the agent what to run next');
+    assert.match(startOut, /Alt\+Shift\+E/, 'tells the agent how the user works the picker');
+    assert.match(startOut, /Alt\+Shift\+P.*survive reloads/, 'tells the agent about pause, the notes list and reloads');
     process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
   });
   const { token } = JSON.parse(fs.readFileSync(STATE, 'utf8'));

@@ -27,6 +27,7 @@ t('no args shows the home view, not a manual', () => {
   const r = run();
   assert.equal(r.code, 0);
   assert.match(r.out, /^bin: /m); assert.match(r.out, /^description: /m); assert.match(r.out, /^help\[/m);
+  assert.match(r.out, /--help` for commands and the loop/);
 });
 t('unknown command: exit 2, structured error on stdout', () => {
   const r = run('bogus');
@@ -55,6 +56,23 @@ t('stop when nothing runs is a no-op', () => {
 t('wait with no proxy: exit 1 and says how to start one', () => {
   const r = run('wait', '--port', FREE);
   assert.equal(r.code, 1); assert.match(r.out, /^error: /m); assert.match(r.out, /start --target/);
+});
+t('top-level --help is short: commands, the loop, and where to get details', () => {
+  const r = run('--help');
+  assert.equal(r.code, 0);
+  assert.ok(r.out.split('\n').length <= 25, `--help has ${r.out.split('\n').length} lines`);
+  for (const c of ['start', 'wait', 'show', 'done', 'status', 'stop']) assert.match(r.out, new RegExp(`^  ${c} `, 'm'), `lists ${c}`);
+  assert.match(r.out, /<command> --help/);
+});
+t('start --help says how to find the dev server port', () => {
+  assert.match(run('start', '--help').out, /Procfile\.dev/);
+});
+t('wait --help carries the source-finding guidance', () => {
+  const out = run('wait', '--help').out;
+  assert.match(out, /annotate_rendered_view_with_filenames/); assert.match(out, /smallest change/);
+});
+t('done --help explains partial failures', () => {
+  assert.match(run('done', '--help').out, /still do the others/);
 });
 t('per-command --help is concise and lists the flags', () => {
   const r = run('wait', '--help');
