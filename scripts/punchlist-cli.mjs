@@ -2943,7 +2943,7 @@ function printInfo(st) {
     console.log(`  Tailscale: run \`tailscale serve --bg ${st.port}\`, then open`);
     console.log(`             https://${ts}${authPath}`);
   }
-  console.log(`  Agent:     node ${SCRIPT} wait --port ${st.port}`);
+  console.log(`  Agent:     ${PE} wait --port ${st.port}`);
 }
 function links(st) {
   const authPath = st.auth === false ? "/" : `${PREFIX}/auth?token=${st.token}`;
@@ -3428,6 +3428,11 @@ async function home() {
 }
 async function cmdSetup(args) {
   if (args._[0] !== "hooks" || args._.length > 1) throw usageError("unknown setup target", "setup", [`Run \`${PE} setup hooks [--project] [--remove]\``]);
+  if (VIA_NPX && !args.remove) throw new AxiError(
+    "setup hooks needs an installed punchlist-axi (the npx cache path can disappear)",
+    "NOT_INSTALLED",
+    ["Run `npm i -g punchlist-axi`, then `punchlist-axi setup hooks`"]
+  );
   const scope = args.project ? "project" : "user";
   const identity = { marker: "punchlist-axi", execPath: SCRIPT, scope };
   const problems = [];
@@ -3442,7 +3447,22 @@ async function cmdSetup(args) {
     help: args.remove ? [`Run \`${PE} setup hooks${args.project ? " --project" : ""}\` to install them again`] : ["Each new agent session now starts with the proxies running for its directory", `Run \`${PE} setup hooks --remove${args.project ? " --project" : ""}\` to undo`]
   };
 }
-var PE = `node ${SCRIPT}`;
+var REAL_SCRIPT = (() => {
+  try {
+    return fs.realpathSync(SCRIPT);
+  } catch {
+    return SCRIPT;
+  }
+})();
+var VIA_NPX = REAL_SCRIPT.split(path.sep).includes("_npx");
+var ON_PATH = !VIA_NPX && (process.env.PATH || "").split(path.delimiter).some((dir) => {
+  try {
+    return dir && fs.realpathSync(path.join(dir, "punchlist-axi")) === REAL_SCRIPT;
+  } catch {
+    return false;
+  }
+});
+var PE = VIA_NPX ? "npx -y punchlist-axi" : ON_PATH ? "punchlist-axi" : `node ${SCRIPT}`;
 var listenHelp = (port) => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
 var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
