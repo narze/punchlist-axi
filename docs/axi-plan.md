@@ -20,11 +20,11 @@ Audit of `scripts/punchlist.mjs` against the AXI skill (`npx skills add kuncheng
 
 Workflow guidance in today's `GUIDE` (finding the source, note kinds) moves into the `wait` output `help[]` and per-command help, so it stays next to the moment the agent needs it.
 
-## Decision needed: runtime dependencies
+## Decision: runtime dependencies (chosen: A, 2026-10-12)
 
-HANDOFF requirement 4 says zero runtime dependencies. AXI's reference SDK `axi-sdk-js` gives dispatch, structured errors, official TOON (`@toon-format/toon`), hook install, `--version` fast path and self-update, but it adds 2 runtime packages.
+Requirement 4 (AGENTS.md) was zero runtime dependencies. AXI's reference SDK `axi-sdk-js` gives dispatch, structured errors, official TOON (`@toon-format/toon`), hook install, `--version` fast path and self-update, but it adds 2 runtime packages.
 
-- **A. Use `axi-sdk-js` and bundle at release** (recommended): source depends on it; a build step (esbuild) emits one self-contained `dist/punchlist.mjs`, so the installed skill and `npx` still need only `node`. Battle-tested TOON, less custom code. Needs npm publishing, which also solves packaging (HANDOFF next step 6).
+- **A. Use `axi-sdk-js` and bundle at release** (recommended): source depends on it; a build step (esbuild) emits one self-contained `dist/punchlist.mjs`, so the installed skill and `npx` still need only `node`. Battle-tested TOON, less custom code. Needs npm publishing, which also solves packaging.
 - **B. Stay hand-rolled**: write a small TOON encoder and own dispatch. No build step, but we own spec compliance.
 
 ## Order of work (small, testable steps)
