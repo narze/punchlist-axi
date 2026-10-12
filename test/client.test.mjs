@@ -12,8 +12,11 @@ const dom = new JSDOM(PAGE.replace('PORT', '3000'), { runScripts: 'outside-only'
   beforeParse(w) { w.document.getAnimations = () => []; w.Range.prototype.getBoundingClientRect = () => ({ left: 10, top: 10, bottom: 30, right: 60 }); } });
 const w = dom.window, d = w.document;
 const errors = []; dom.virtualConsole.on('jsdomError', e => errors.push(e));
-let sent;
-w.fetch = async (u, o) => { sent = JSON.parse(o.body); return { ok: true, json: async () => ({}) }; };
+let sent, opened;
+w.fetch = async (u, o) => {
+  if (u.endsWith('/open')) { opened = JSON.parse(o.body); return { ok: true, json: async () => ({ file: opened.file }) }; }
+  sent = JSON.parse(o.body); return { ok: true, json: async () => ({}) };
+};
 w.EventSource = class {};
 w.CSS = { escape: s => s.replace(/[^\w-]/g, c => '\\' + c) };
 d.elementFromPoint = () => w.__t;
@@ -55,5 +58,23 @@ assert.equal(n1.kind, 'element'); assert.equal(n1.elements[0].selector, '#buy');
 assert.equal(n1.elements[0].hints.rails.at(-1), 'app/views/events/_cta.html.erb');
 assert.equal(n2.kind, 'text'); assert.equal(n2.text, '18:30'); assert.equal(n2.elements[0].label, 'p.after');
 assert.equal(q('.count').textContent, '0', 'notes cleared after send');
+
+// Open in editor: the button shows only for hints that name a file
+tool('pick');
+tap(d.getElementById('buy'));
+assert.equal(q('.open').style.display, '', 'Open shows for a Rails template hint');
+q('.open').click(); await sleep(10);
+assert.deepEqual(opened, { file: 'app/views/events/_cta.html.erb' });
+const sv = d.createElement('div'); sv.__svelte_meta = { loc: { file: 'src/routes/+page.svelte', line: 4, column: 2 } };
+const comp = d.createElement('span'); comp.__vueParentComponent = { type: { name: 'PriceTag' } };
+const card = d.createElement('i'); card.__reactFiber$x = { type: { name: 'Card' }, _debugSource: { fileName: '/app/src/Card.tsx', lineNumber: 12 } };
+d.body.append(sv, comp, card);
+tap(sv); q('.open').click(); await sleep(10);
+assert.deepEqual(opened, { file: 'src/routes/+page.svelte', line: 4, column: 2 }, 'Svelte hint opens at line and column');
+tap(card); q('.open').click(); await sleep(10);
+assert.deepEqual(opened, { file: '/app/src/Card.tsx', line: 12 }, 'React _debugSource hint opens at the line');
+tap(comp);
+assert.equal(q('.open').style.display, 'none', 'no Open for a component name only');
+q('.cancel').click();
 assert.deepEqual(errors, [], 'no runtime errors');
-console.log('✓ client.js: pick, freeze, text selection, persistence, send payload');
+console.log('✓ client.js: pick, freeze, text selection, persistence, send payload, open in editor');

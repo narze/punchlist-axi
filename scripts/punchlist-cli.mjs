@@ -2957,7 +2957,7 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
-      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent",
+      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
     ]

@@ -31,6 +31,7 @@ try {
     assert.match(startOut, /reply text/, 'link goes into the reply text: users do not see command output');
     assert.match(startOut, /background/, 'says how to run wait without hiding the reply');
     assert.match(startOut, /Alt\+Shift\+P.*survive reloads/, 'tells the agent about pause, the notes list and reloads');
+    assert.match(startOut, /↗ Open/, 'tells the agent about open in editor');
     process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
   });
   const { token } = JSON.parse(fs.readFileSync(STATE, 'utf8'));

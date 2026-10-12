@@ -27,7 +27,7 @@ Prior art (none meets all 4 requirements): Agentation (React-only, needs a compo
 
 ## Verified so far
 
-Desktop Chromium against GeekCraft (Rails + Turbo, on another tailnet host) and 4do (SvelteKit/Vite): auth, injection, URL rewriting, click/drag/area/text notes, Turbo navigation, CSRF form POST, Send -> `wait` -> `done` -> toast, 390px layout. Not verified: real phone (iOS Safari), Vite HMR socket through the proxy, ActionCable, ⏸ pause. Always say what was checked in a real browser vs only in jsdom.
+Desktop Chromium against GeekCraft (Rails + Turbo, on another tailnet host) and 4do (SvelteKit/Vite): auth, injection, URL rewriting, click/drag/area/text notes, Turbo navigation, CSRF form POST, Send -> `wait` -> `done` -> toast, 390px layout. ↗ Open (open in editor) checked in desktop Chromium and at 390px against the test fixture with a fake `LAUNCH_EDITOR`, not with a real editor. Not verified: real phone (iOS Safari), Vite HMR socket through the proxy, ActionCable, ⏸ pause. Always say what was checked in a real browser vs only in jsdom.
 
 ## Open work (priority order)
 

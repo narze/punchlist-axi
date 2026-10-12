@@ -45,6 +45,8 @@
     .panel.top { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; }
     .label { font: 12px ui-monospace, monospace; color: #fbbf24; word-break: break-all; }
     .hint { font: 11px ui-monospace, monospace; color: #a1a1aa; margin-top: 2px; word-break: break-all; }
+    .where { display: flex; gap: 8px; align-items: center; } .where .hint { flex: 1; min-width: 0; }
+    .sheet .open { padding: 2px 8px; font-size: 12px; flex: none; }
     textarea { width: 100%; min-height: 64px; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;
       background: #09090b; color: #fafafa; font-size: 16px; resize: vertical; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -69,7 +71,7 @@
   <button class="chip" type="button">💬 Annotate</button>
   <div class="sheet panel" role="dialog" aria-label="Add a note">
     <div class="label"></div>
-    <div class="hint"></div>
+    <div class="where"><div class="hint"></div><button class="open" type="button" title="Open this file in your editor">↗ Open</button></div>
     <textarea placeholder="What should change? (⌘/Ctrl+Enter to add)"></textarea>
     <div class="row">
       <button class="up" type="button" title="Select parent">⬆ parent</button>
@@ -176,6 +178,14 @@
     return h;
   }
   const bestHint = h => h.svelte[0] || h.rails.at(-1) || h.vue[0] || h.react[0] || '';
+  // { file, line?, column? } from the best hint that names a file, or null (a bare component name)
+  function fileHint(h) {
+    for (const s of [h.svelte[0], h.rails.at(-1), h.vue[0], h.react.find(r => r.endsWith(')'))]) {
+      const m = s && (s.match(/\((.+):(\d+)\)$/) || s.match(/^([^\s()]+\.\w+)(?::(\d+))?(?::(\d+))?$/));
+      if (m) return { file: m[1], ...(m[2] ? { line: +m[2] } : {}), ...(m[3] ? { column: +m[3] } : {}) };
+    }
+    return null;
+  }
 
   function elementContext(el) {
     const cs = getComputedStyle(el);
@@ -329,6 +339,8 @@
     d.desc = describe(snap);
     $('.label').textContent = d.desc;
     $('.hint').textContent = bestHint(snap.elements[0].hints) || snap.elements[0].selector;
+    d.file = fileHint(snap.elements[0].hints);
+    $('.open').style.display = d.file ? '' : 'none';
     const single = d.kind === 'element';
     $('.up').style.display = $('.down').style.display = single ? '' : 'none';
     // keep the target visible: a target in the lower half gets the sheet at the top
@@ -354,6 +366,16 @@
     toast(`📝 Note ${notes.length} added${picking ? ' — tap the next spot' : ''}`, null, 2500);
   }
   $('.add').onclick = addNote;
+  // the proxy opens it on the dev machine, so this also works from a phone
+  $('.open').onclick = async () => {
+    if (!draft?.file) return;
+    try {
+      const r = await fetch(API + '/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draft.file) });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error || r.status);
+      toast(`↗ Opened ${b.file} in your editor`, null, 2500);
+    } catch (e) { toast(`❌ Open failed: ${e.message}`); }
+  };
   $('.cancel').onclick = cancelDraft;
   $('.up').onclick = () => { const p = draft?.els[0].parentElement; if (pageEl(p)) startDraft({ kind: 'element', els: [p] }); };
   $('.down').onclick = () => { const c = draft?.els[0].firstElementChild; if (c) startDraft({ kind: 'element', els: [c] }); };
