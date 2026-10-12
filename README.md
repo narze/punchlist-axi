@@ -8,7 +8,7 @@ Nothing in your app changes. It works in front of Rails (Turbo), SvelteKit/Vite,
 
 ## Use
 
-With the skill installed, ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
+Install the skill (Claude Code, Codex, OpenCode, Cursor and others) with `npx skills add narze/punchlist-axi --skill punchlist`, then ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
 
 By hand, with Node 18+ (no install needed):
 
