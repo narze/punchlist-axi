@@ -14,7 +14,10 @@ const TPORT = 39000 + Math.floor(Math.random() * 500), PPORT = TPORT + 500;
 const fixture = await startFixture(TPORT);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let ok = 0; const t = async (name, fn) => { await fn(); ok++; console.log('✓', name); };
-const cli = (...a) => execFileSync(process.execPath, [CLI, ...a], { stdio: 'pipe', timeout: 15000 }).toString();
+// A fake editor: launch-editor runs $LAUNCH_EDITOR with <file> <line> <column>.
+const OPENED = path.join(os.tmpdir(), `pe-opened-${PPORT}.txt`), EDITOR = path.join(os.tmpdir(), `pe-editor-${PPORT}.sh`);
+fs.writeFileSync(EDITOR, `#!/bin/sh\necho "$@" >> "${OPENED}"\n`, { mode: 0o755 });
+const cli = (...a) => execFileSync(process.execPath, [CLI, ...a], { stdio: 'pipe', timeout: 15000, env: { ...process.env, LAUNCH_EDITOR: EDITOR } }).toString();
 const STATE = path.join(os.tmpdir(), 'punchlist', `${PPORT}.json`);
 
 try {
@@ -28,6 +31,7 @@ try {
     assert.match(startOut, /reply text/, 'link goes into the reply text: users do not see command output');
     assert.match(startOut, /background/, 'says how to run wait without hiding the reply');
     assert.match(startOut, /Alt\+Shift\+P.*survive reloads/, 'tells the agent about pause, the notes list and reloads');
+    assert.match(startOut, /↗ Open/, 'tells the agent about open in editor');
     process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
   });
   const { token } = JSON.parse(fs.readFileSync(STATE, 'utf8'));
@@ -85,6 +89,20 @@ try {
     const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: '{"prompt":"x"}' });
     assert.equal(r.status, 400);
   });
+  await t('open launches the editor on a project file at the given line', async () => {
+    const open = body => fetch(P + '/__pe/open', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await open({ file: 'test/fixture-server.mjs', line: 6, column: 3 });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).file, 'test/fixture-server.mjs');
+    for (let i = 0; i < 50 && !fs.existsSync(OPENED); i++) await sleep(50);
+    assert.equal(fs.readFileSync(OPENED, 'utf8').trim(), `${path.resolve('test/fixture-server.mjs')} 6 3`);
+    assert.equal((await open({ file: path.resolve('package.json') })).status, 200, 'absolute paths inside the project are fine');
+    assert.equal((await open({ file: '../outside.txt' })).status, 403, 'nothing outside the project');
+    assert.equal((await open({ file: '/etc/hosts' })).status, 403);
+    assert.equal((await open({ file: 'app/views/missing.html.erb' })).status, 404);
+    assert.equal((await open({})).status, 400);
+    assert.equal((await fetch(P + '/__pe/open', { method: 'POST', body: '{"file":"package.json"}' })).status, 401, 'needs the auth cookie');
+  });
   const LONG = '<section>' + 'x'.repeat(5000) + '</section>';
   await t('wait prints the batch as TOON with hints, truncated HTML and next steps', async () => {
     const waiter = spawn(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '5']);
@@ -137,5 +155,6 @@ try {
 } finally {
   try { process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid); } catch {}
   fs.rmSync(STATE.replace(/\.json$/, '.log'), { force: true });
+  fs.rmSync(OPENED, { force: true }); fs.rmSync(EDITOR, { force: true });
   fixture.close();
 }
