@@ -24,6 +24,8 @@ try {
     assert.match(startOut, /__pe\/auth\?token=/);
     assert.match(startOut, /wait --port \d+/, 'tells the agent what to run next');
     assert.match(startOut, /Alt\+Shift\+E/, 'tells the agent how the user works the picker');
+    assert.match(startOut, /reply text/, 'link goes into the reply text: users do not see command output');
+    assert.match(startOut, /background/, 'says how to run wait without hiding the reply');
     assert.match(startOut, /Alt\+Shift\+P.*survive reloads/, 'tells the agent about pause, the notes list and reloads');
     process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
   });
