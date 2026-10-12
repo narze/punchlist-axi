@@ -21,5 +21,5 @@ var version = "0.1.0";
 // src/version.mjs
 var VERSION = version;
 
-// src/punchlist.mjs
+// src/punchlist-axi.mjs
 if (!tryFastPath(process.argv.slice(2), { version: VERSION })) await import("./punchlist-cli.mjs");

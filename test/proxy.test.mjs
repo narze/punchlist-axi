@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { startFixture } from './fixture-server.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.join(here, '../scripts/punchlist.mjs');
+const CLI = path.join(here, '../scripts/punchlist-axi.mjs');
 const TPORT = 39000 + Math.floor(Math.random() * 500), PPORT = TPORT + 500;
 const fixture = await startFixture(TPORT);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -24,6 +24,8 @@ try {
     assert.match(startOut, /__pe\/auth\?token=/);
     assert.match(startOut, /wait --port \d+/, 'tells the agent what to run next');
     assert.match(startOut, /Alt\+Shift\+E/, 'tells the agent how the user works the picker');
+    assert.match(startOut, /reply text/, 'link goes into the reply text: users do not see command output');
+    assert.match(startOut, /background/, 'says how to run wait without hiding the reply');
     assert.match(startOut, /Alt\+Shift\+P.*survive reloads/, 'tells the agent about pause, the notes list and reloads');
     process.kill(JSON.parse(fs.readFileSync(STATE, 'utf8')).pid, 0); // throws if the daemon is gone
   });
@@ -32,6 +34,13 @@ try {
     const again = cli('start', '--target', String(TPORT), '--port', String(PPORT));
     assert.match(again, /already running/);
     assert.ok(again.includes(`token=${token}`), 'same auth link');
+  });
+  await t('home view lists only proxies started from this directory', async () => {
+    const here = execFileSync(process.execPath, [CLI], { cwd: process.cwd() }).toString();
+    assert.match(here, new RegExp(`^  ${PPORT},`, 'm'));
+    const elsewhere = execFileSync(process.execPath, [CLI], { cwd: os.tmpdir() }).toString();
+    assert.doesNotMatch(elsewhere, new RegExp(`^  ${PPORT},`, 'm'));
+    assert.match(elsewhere, /other_proxies: \d+/);
   });
   await t('start with a different target on a busy port fails', async () => {
     assert.throws(() => cli('start', '--target', String(TPORT + 1), '--port', String(PPORT)), e => /already proxies/.test(e.stdout));

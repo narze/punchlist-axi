@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '../scripts/punchlist.mjs');
+const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '../scripts/punchlist-axi.mjs');
 const FREE = String(41000 + Math.floor(Math.random() * 500)); // a port with no proxy
 const run = (...a) => { const r = spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', timeout: 15000 }); return { code: r.status, out: r.stdout, err: r.stderr }; };
 let ok = 0; const t = (name, fn) => { fn(); ok++; console.log('✓', name); };
@@ -77,5 +77,33 @@ t('done --help explains partial failures', () => {
 t('per-command --help is concise and lists the flags', () => {
   const r = run('wait', '--help');
   assert.equal(r.code, 0); assert.match(r.out, /--timeout/); assert.doesNotMatch(r.out, /FINDING THE SOURCE/);
+});
+t('setup needs a known target', () => {
+  const r = run('setup');
+  assert.equal(r.code, 2); assert.match(r.out, /setup hooks/);
+});
+t('setup hooks installs a working SessionStart hook, idempotently, and --remove takes it out', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-home-'));
+  const env = { ...process.env, HOME: home };
+  const go = (...a) => spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8', env, timeout: 15000 });
+  const settings = () => JSON.parse(fs.readFileSync(path.join(home, '.claude/settings.json'), 'utf8'));
+  const all = () => (settings().hooks?.SessionStart || []).flatMap(g => g.hooks);
+  const hooks = () => all().filter(h => h.command.includes('punchlist-axi'));
+  const mine = { type: 'command', command: 'cd ~/punchlist && ./notes.sh' };
+  fs.mkdirSync(path.join(home, '.claude'));
+  fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({ hooks: { SessionStart: [{ hooks: [mine] }] } }));
+
+  const first = go('setup', 'hooks');
+  assert.equal(first.status, 0, first.stdout); assert.match(first.stdout, /claude/);
+  assert.equal(hooks().length, 1, 'one managed Claude Code hook');
+  const hook = spawnSync(hooks()[0].command, { shell: true, encoding: 'utf8', env, cwd: home });
+  assert.equal(hook.status, 0); assert.match(hook.stdout, /^description: /m, 'the hook prints the home view');
+
+  assert.equal(go('setup', 'hooks').status, 0);
+  assert.equal(hooks().length, 1, 'second install does not duplicate');
+
+  const removed = go('setup', 'hooks', '--remove');
+  assert.equal(removed.status, 0); assert.equal(hooks().length, 0);
+  assert.deepEqual(all().map(h => h.command), [mine.command], 'an unrelated user hook survives install and --remove');
 });
 console.log(`\n${ok} passed`);

@@ -1,13 +1,13 @@
 # punchlist - notes for agents
 
-See README.md for what this is. Layout: `src/cli.mjs` (proxy + CLI source, uses `axi-sdk-js`; `pnpm build` bundles `src/punchlist.mjs` (entry: `--version` fast path) into `scripts/punchlist.mjs` and `src/cli.mjs` into `scripts/punchlist-cli.mjs`; both are committed and must never be edited by hand - `pnpm test` rebuilds first), `scripts/client.js` (picker injected into pages, shadow DOM), `test/` (`pnpm test`: proxy e2e against a fake Rails-like server, client flows in jsdom with stubbed layout). The SKILL.md files are thin stubs; the CLI (`--help`, next-step lines) is the source of truth for agent guidance.
+See README.md for what this is. Layout: `src/cli.mjs` (proxy + CLI source, uses `axi-sdk-js`; `pnpm build` bundles `src/punchlist-axi.mjs` (entry: `--version` fast path) into `scripts/punchlist-axi.mjs` and `src/cli.mjs` into `scripts/punchlist-cli.mjs`; both are committed and must never be edited by hand - `pnpm test` rebuilds first), `scripts/client.js` (picker injected into pages, shadow DOM), `test/` (`pnpm test`: proxy e2e against a fake Rails-like server, client flows in jsdom with stubbed layout). The SKILL.md files are thin stubs; the CLI (`--help`, next-step lines) is the source of truth for agent guidance.
 
 ## Hard requirements
 
 1. **No changes to the target app.** Must work in front of any server: Rails (ERB, Turbo, ActionCable), SvelteKit/Vite, React, static.
 2. **Works on a phone over Tailscale.** This is why it is a proxy and not a browser extension.
 3. **AI-agnostic.** Any agent that can run shell commands must be able to drive it. No MCP requirement, no vendor CLI baked in.
-4. **Only `node` (>= 18) or `bun` needed at runtime.** Source may use libraries (decision 2026-10-12: `axi-sdk-js`), but releases ship bundled files (`scripts/punchlist.mjs` + `scripts/punchlist-cli.mjs`), no install.
+4. **Only `node` (>= 18) or `bun` needed at runtime.** Source may use libraries (decision 2026-10-12: `axi-sdk-js`), but releases ship bundled files (`scripts/punchlist-axi.mjs` + `scripts/punchlist-cli.mjs`), no install.
 
 ## Decisions (do not reopen without a reason)
 

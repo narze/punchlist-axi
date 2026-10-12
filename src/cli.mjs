@@ -1,6 +1,6 @@
 // punchlist — proxy any local web app, inject an element picker, and queue
 // "change this element" requests for whatever coding agent is running the loop.
-// Source; `pnpm build` bundles it into scripts/punchlist.mjs, which needs only Node >= 18 or Bun.
+// Source; `pnpm build` bundles it into scripts/punchlist-cli.mjs, which needs only Node >= 18 or Bun.
 //
 //   punchlist start --target 3000 [--port 4000] [--host 127.0.0.1] [--no-auth]   (background)
 //   punchlist serve --target 3000 [...]                                          (foreground)
@@ -20,11 +20,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { runAxiCli, AxiError } from 'axi-sdk-js';
+import { runAxiCli, AxiError, installSessionStartHooks, uninstallSessionStartHooks, sessionStartHookStatus } from 'axi-sdk-js';
 import { VERSION } from './version.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const SCRIPT = path.join(DIR, 'punchlist.mjs'); // the entry point; this file is punchlist-cli.mjs once built
+const SCRIPT = path.join(DIR, 'punchlist-axi.mjs'); // the entry point; this file is punchlist-cli.mjs once built
 const STATE_DIR = path.join(os.tmpdir(), 'punchlist');
 const PREFIX = '/__pe';
 const COOKIE = '__pe_auth';
@@ -39,6 +39,7 @@ const FLAGS = {
   done: { port: 'v', failed: 'b' },
   status: { port: 'v' },
   stop: { port: 'v' },
+  setup: { project: 'b', remove: 'b' },
 };
 
 function usageError(msg, cmd, extra = []) {
@@ -169,10 +170,10 @@ function startOutput(st, state) {
     proxy: { target: st.target, port: st.port, pid: st.pid, state },
     links: l,
     help: [
-      'Send the user the local link exactly (its token sets the access cookie) before you run wait: wait blocks, so a message queued behind it may not reach the user',
+      'Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie',
       'Tell the user: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations, 🗒 lists notes, and notes survive reloads until sent',
       ...(l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : []),
-      `Run \`${PE} wait --port ${st.port}\` to receive the user's notes`,
+      `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first`,
     ],
   };
 }
@@ -410,7 +411,8 @@ function cmdServe(args) {
 
   server.listen(port, host, () => {
     fs.mkdirSync(STATE_DIR, { recursive: true });
-    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid };
+    // cwd = the project the agent started us from; the home view (and the session hook) is scoped to it
+    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
   });
@@ -544,18 +546,41 @@ function runningProxies() {
     .filter(st => st && alive(st.pid));
 }
 
+// Also the SessionStart hook output: keep it small and scoped to the current directory.
 async function home() {
-  const sts = runningProxies();
-  const proxies = await Promise.all(sts.map(async st => {
+  const here = process.cwd();
+  const mine = st => st.cwd && (here === st.cwd || here.startsWith(st.cwd + path.sep));
+  const sts = runningProxies(), local = sts.filter(mine), others = sts.length - local.length;
+  const proxies = await Promise.all(local.map(async st => {
     let pending = '?';
-    try { pending = (await (await api(st, '/requests')).json()).filter(i => i.status === 'pending').length; } catch {}
+    try { pending = (await (await api(st, '/requests', { signal: AbortSignal.timeout(1500) })).json()).filter(i => i.status === 'pending').length; } catch {}
     return { port: st.port, target: st.target, pending };
   }));
   return {
-    proxies: proxies.length ? proxies : '0 running',
+    proxies: proxies.length ? proxies : '0 running for this directory',
+    ...(others ? { other_proxies: `${others} (started from other directories; see \`${PE} status --port <port>\`)` } : {}),
     help: proxies.length
       ? [`Run \`${PE} wait --port <port>\` to receive notes`, `Run \`${PE} status --port <port>\` to list requests`, `Run \`${PE} --help\` for commands and the loop`]
       : [`Run \`${PE} start --target <port|url>\` to proxy a dev server`, `Run \`${PE} --help\` for commands and the loop`],
+  };
+}
+
+// Opt-in only (AXI rule 7): the one command that writes agent config.
+async function cmdSetup(args) {
+  if (args._[0] !== 'hooks' || args._.length > 1) throw usageError('unknown setup target', 'setup', [`Run \`${PE} setup hooks [--project] [--remove]\``]);
+  const scope = args.project ? 'project' : 'user';
+  const identity = { marker: 'punchlist-axi', execPath: SCRIPT, scope };
+  const problems = [];
+  if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: m => problems.push(m) });
+  else await installSessionStartHooks({ ...identity, binaryNames: ['punchlist-axi'], shouldInstall: () => true, onError: m => problems.push(m) });
+  const st = sessionStartHookStatus(identity);
+  const row = (agent, a) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), '~') });
+  return {
+    setup: `${args.remove ? 'removed' : 'installed or already up to date'}: SessionStart hooks (${scope} scope)`,
+    agents: [row('claude', st.claude), row('codex', st.codex), row('opencode', st.opencode)],
+    ...(problems.length ? { warnings: problems } : {}),
+    help: args.remove ? [`Run \`${PE} setup hooks${args.project ? ' --project' : ''}\` to install them again`]
+      : ['Each new agent session now starts with the proxies running for its directory', `Run \`${PE} setup hooks --remove${args.project ? ' --project' : ''}\` to undo`],
   };
 }
 
@@ -572,6 +597,7 @@ commands:
   done    report a request back to the browser
   status  list requests on a proxy
   stop    stop a proxy
+  setup   add a SessionStart hook so new agent sessions see running proxies
   serve   run the proxy in the foreground (debugging)
 
 loop: start -> send the user the link -> wait -> edit the source -> done -> wait ...
@@ -625,10 +651,18 @@ examples:
   List the requests on a proxy with counts by state.`,
   stop: `stop [--port 4000]
   Stop a proxy. No-op when nothing runs.`,
+  setup: `setup hooks [--project] [--remove]
+  Add a SessionStart hook to Claude Code, Codex and OpenCode: each session starts with the
+  proxies running for its directory (the no-args home view). Safe to re-run.
+  --project  write the project's config (.claude/settings.json, ...) instead of the user's
+  --remove   take the hooks out again
+examples:
+  ${PE} setup hooks
+  ${PE} setup hooks --remove`,
 };
 
 const handler = fn => cmd => argv => fn(parseArgs(cmd, argv));
-const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop })
+const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup })
   .map(([k, fn]) => [k, handler(fn)(k)]));
 
 await runAxiCli({

@@ -125,7 +125,7 @@ function isValidUnquotedKey(key) {
 function isIdentifierSegment(key) {
   return /^[A-Z_]\w*$/i.test(key);
 }
-function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
+function isSafeUnquoted(value, delimiter2 = DEFAULT_DELIMITER) {
   if (!value) return false;
   if (value !== value.trim()) return false;
   if (isBooleanOrNullLiteral(value) || isNumericLike(value)) return false;
@@ -133,7 +133,7 @@ function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
   if (value.includes('"') || value.includes("\\")) return false;
   if (/[[\]{}]/.test(value)) return false;
   if (/[\u0000-\u001F]/.test(value)) return false;
-  if (value.includes(delimiter)) return false;
+  if (value.includes(delimiter2)) return false;
   if (value.startsWith("-")) return false;
   return true;
 }
@@ -183,33 +183,33 @@ function collectSingleKeyChain(startKey, startValue, maxDepth) {
 function buildFoldedKey(segments) {
   return segments.join(".");
 }
-function encodePrimitive(value, delimiter) {
+function encodePrimitive(value, delimiter2) {
   if (value === null) return NULL_LITERAL;
   if (typeof value === "boolean") return String(value);
   if (typeof value === "number") return String(value);
-  return encodeStringLiteral(value, delimiter);
+  return encodeStringLiteral(value, delimiter2);
 }
-function encodeStringLiteral(value, delimiter = DEFAULT_DELIMITER) {
-  if (isSafeUnquoted(value, delimiter)) return value;
+function encodeStringLiteral(value, delimiter2 = DEFAULT_DELIMITER) {
+  if (isSafeUnquoted(value, delimiter2)) return value;
   return `"${escapeString(value)}"`;
 }
 function encodeKey(key) {
   if (isValidUnquotedKey(key)) return key;
   return `"${escapeString(key)}"`;
 }
-function encodeAndJoinPrimitives(values, delimiter = DEFAULT_DELIMITER) {
-  return values.map((v) => encodePrimitive(v, delimiter)).join(delimiter);
+function encodeAndJoinPrimitives(values, delimiter2 = DEFAULT_DELIMITER) {
+  return values.map((v) => encodePrimitive(v, delimiter2)).join(delimiter2);
 }
 function formatHeader(length, options) {
   const key = options?.key;
   const fields = options?.fields;
-  const delimiter = options?.delimiter ?? ",";
+  const delimiter2 = options?.delimiter ?? ",";
   let header = "";
   if (key != null) header += encodeKey(key);
-  header += `[${length}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
+  header += `[${length}${delimiter2 !== DEFAULT_DELIMITER ? delimiter2 : ""}]`;
   if (fields) {
     const quotedFields = fields.map((f) => encodeKey(f));
-    header += `{${quotedFields.join(delimiter)}}`;
+    header += `{${quotedFields.join(delimiter2)}}`;
   }
   header += ":";
   return header;
@@ -299,12 +299,12 @@ function* encodeArrayOfArraysAsListItemsLines(prefix, values, depth, options) {
     yield indentedListItem(depth + 1, arrayLine, options.indent);
   }
 }
-function encodeInlineArrayLine(values, delimiter, prefix) {
+function encodeInlineArrayLine(values, delimiter2, prefix) {
   const header = formatHeader(values.length, {
     key: prefix,
-    delimiter
+    delimiter: delimiter2
   });
-  const joinedValue = encodeAndJoinPrimitives(values, delimiter);
+  const joinedValue = encodeAndJoinPrimitives(values, delimiter2);
   if (values.length === 0) return header;
   return `${header} ${joinedValue}`;
 }
@@ -850,7 +850,7 @@ async function defaultRunInstall(plan, stdout, context) {
   }
   stdout.write(`running: ${plan.command}
 `);
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const [command, ...args] = argv;
     const child = spawn(packageManagerExecutable(command, context.platform), args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -863,10 +863,10 @@ async function defaultRunInstall(plan, stdout, context) {
       process.stderr.write(chunk);
     });
     child.on("error", (error) => {
-      resolve({ ok: false, message: error.message });
+      resolve2({ ok: false, message: error.message });
     });
     child.on("close", (code) => {
-      resolve(code === 0 ? { ok: true } : { ok: false, message: `${plan.command} exited with code ${code}` });
+      resolve2(code === 0 ? { ok: true } : { ok: false, message: `${plan.command} exited with code ${code}` });
     });
   });
 }
@@ -1186,6 +1186,599 @@ function mergeHomeHeader(header, output) {
   };
 }
 
+// node_modules/.pnpm/axi-sdk-js@0.1.13/node_modules/axi-sdk-js/dist/hooks.js
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, realpathSync as realpathSync2, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { basename as basename3, delimiter, dirname as dirname2, join as join2, resolve } from "node:path";
+var OPENCODE_PLUGIN_MANAGED_PREFIX = "axi-sdk-js managed opencode plugin:";
+function isManagedHook(hook, marker) {
+  return typeof hook?.command === "string" && hook.command.includes(marker);
+}
+function computeSessionStartHookUpdate(settings, spec) {
+  const updated = structuredClone(settings);
+  let changed = false;
+  if (!updated.hooks) {
+    updated.hooks = {};
+    changed = true;
+  }
+  if (Array.isArray(updated.hooks.session_start)) {
+    const legacyHooks = updated.hooks.session_start.filter((hook) => !isManagedHook(hook, spec.marker));
+    if (legacyHooks.length !== updated.hooks.session_start.length) {
+      changed = true;
+      if (legacyHooks.length === 0) {
+        delete updated.hooks.session_start;
+      } else {
+        updated.hooks.session_start = legacyHooks;
+      }
+    }
+  }
+  if (!Array.isArray(updated.hooks.SessionStart)) {
+    updated.hooks.SessionStart = [];
+    changed = true;
+  }
+  for (const group of updated.hooks.SessionStart) {
+    if (!Array.isArray(group.hooks)) {
+      continue;
+    }
+    for (const hook of group.hooks) {
+      if (!isManagedHook(hook, spec.marker)) {
+        continue;
+      }
+      const timeout = spec.timeoutSeconds ?? 10;
+      const isCorrect = hook.command === spec.command && hook.type === "command" && hook.timeout === timeout;
+      if (isCorrect && !changed) {
+        return [settings, false];
+      }
+      hook.command = spec.command;
+      hook.type = "command";
+      hook.timeout = timeout;
+      return [updated, true];
+    }
+  }
+  updated.hooks.SessionStart.push({
+    matcher: "",
+    hooks: [
+      {
+        type: "command",
+        command: spec.command,
+        timeout: spec.timeoutSeconds ?? 10
+      }
+    ]
+  });
+  return [updated, true];
+}
+function computeSessionStartHookRemoval(settings, marker) {
+  if (!settings.hooks) {
+    return [settings, false];
+  }
+  const updated = structuredClone(settings);
+  const hooks = updated.hooks;
+  if (!hooks) {
+    return [settings, false];
+  }
+  let changed = false;
+  if (Array.isArray(hooks.session_start)) {
+    const remaining = hooks.session_start.filter((hook) => !isManagedHook(hook, marker));
+    if (remaining.length !== hooks.session_start.length) {
+      changed = true;
+      if (remaining.length === 0) {
+        delete hooks.session_start;
+      } else {
+        hooks.session_start = remaining;
+      }
+    }
+  }
+  if (Array.isArray(hooks.SessionStart)) {
+    const remainingGroups = [];
+    let sessionStartChanged = false;
+    for (const group of hooks.SessionStart) {
+      if (!Array.isArray(group.hooks)) {
+        remainingGroups.push(group);
+        continue;
+      }
+      const remainingHooks = group.hooks.filter((hook) => !isManagedHook(hook, marker));
+      if (remainingHooks.length === group.hooks.length) {
+        remainingGroups.push(group);
+        continue;
+      }
+      sessionStartChanged = true;
+      if (remainingHooks.length > 0) {
+        remainingGroups.push({ ...group, hooks: remainingHooks });
+      }
+    }
+    if (sessionStartChanged) {
+      changed = true;
+      if (remainingGroups.length > 0) {
+        hooks.SessionStart = remainingGroups;
+      } else {
+        delete hooks.SessionStart;
+      }
+    }
+  }
+  if (Object.keys(hooks).length === 0) {
+    delete updated.hooks;
+  }
+  return changed ? [updated, true] : [settings, false];
+}
+function computeCodexConfigUpdate(content) {
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const normalized = content.length === 0 ? "" : content;
+  if (normalized.trim().length === 0) {
+    return [`[features]${newline}hooks = true${newline}`, true];
+  }
+  const lines = normalized.split(/\r?\n/);
+  const updated = [...lines];
+  let inFeatures = false;
+  let sawFeatures = false;
+  for (let index = 0; index < updated.length; index++) {
+    const line = updated[index];
+    const section = line.match(/^\s*(\[{1,2})([^\]]+)(\]{1,2})\s*(?:#.*)?$/);
+    if (section) {
+      const isTableHeader = section[1] === "[" && section[3] === "]" || section[1] === "[[" && section[3] === "]]";
+      if (!isTableHeader) {
+        continue;
+      }
+      const sectionName = section[2].trim();
+      if (inFeatures) {
+        updated.splice(index, 0, "hooks = true");
+        return [updated.join(newline), true];
+      }
+      inFeatures = sectionName === "features";
+      sawFeatures ||= inFeatures;
+      continue;
+    }
+    if (!inFeatures) {
+      continue;
+    }
+    const flag = line.match(/^\s*hooks\s*=\s*(true|false)\s*(?:#.*)?$/);
+    if (!flag) {
+      continue;
+    }
+    if (flag[1] === "true") {
+      return [content, false];
+    }
+    updated[index] = line.replace(/false/, "true");
+    return [updated.join(newline), true];
+  }
+  if (sawFeatures) {
+    const suffix = normalized.endsWith(newline) ? "" : newline;
+    return [`${normalized}${suffix}hooks = true${newline}`, true];
+  }
+  const separator = normalized.endsWith(newline) ? newline : `${newline}${newline}`;
+  return [
+    `${normalized}${separator}[features]${newline}hooks = true${newline}`,
+    true
+  ];
+}
+function openCodePluginId(marker) {
+  return `axi-${marker.replace(/[^A-Za-z0-9._-]+/g, "_")}`;
+}
+function buildOpenCodeAmbientPluginSource(marker, command, timeoutSeconds) {
+  const managedMarker = `${OPENCODE_PLUGIN_MANAGED_PREFIX} ${marker}`;
+  return `// ${managedMarker}
+// This file is generated by axi-sdk-js. It is safe to edit only if you remove the managed marker above.
+import { spawn } from "node:child_process";
+
+const command = ${JSON.stringify(command)};
+const marker = ${JSON.stringify(marker)};
+const ambientHeader = ${JSON.stringify(`## AXI ambient context: ${marker}`)};
+const timeoutMs = ${JSON.stringify(timeoutSeconds * 1e3)};
+
+function runAxiHomeView(cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(command, [], {
+      cwd: directoryOrFallback(cwd),
+      env: process.env,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve("error: " + marker + " ambient context timed out after " + timeoutMs + "ms");
+    }, timeoutMs);
+
+    child.stdout?.setEncoding("utf-8");
+    child.stderr?.setEncoding("utf-8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve("error: " + marker + " ambient context failed: " + error.message);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+      const message = (stderr || stdout || marker + " exited with code " + code).trim();
+      resolve("error: " + marker + " ambient context failed: " + message);
+    });
+  });
+}
+
+function directoryOrFallback(directory) {
+  return typeof directory === "string" && directory.length > 0
+    ? directory
+    : process.cwd();
+}
+
+// Returns the session's ambient context text, running the AXI home view once per session.
+function ambientContextFor(directory) {
+  const sessionCache = new Map();
+
+  return async (sessionID) => {
+    const key = sessionID ?? "__global__";
+    let homeView = sessionCache.get(key);
+    if (homeView === undefined) {
+      homeView = await runAxiHomeView(directory);
+      sessionCache.set(key, homeView);
+    }
+    return homeView.length === 0 ? "" : ambientHeader + "\\n" + homeView;
+  };
+}
+
+export default {
+  id: ${JSON.stringify(openCodePluginId(marker))},
+  // OpenCode 2 entrypoint.
+  async setup(ctx) {
+    const ambientContext = ambientContextFor(ctx.location.directory);
+    await ctx.session.hook("context", async (event) => {
+      const text = await ambientContext(event.sessionID);
+      if (text) event.system.push({ type: "text", text });
+    });
+  },
+  // OpenCode 1 entrypoint.
+  async server({ directory }) {
+    const ambientContext = ambientContextFor(directory);
+    return {
+      "experimental.chat.system.transform": async (input, output) => {
+        const text = await ambientContext(input.sessionID);
+        if (text) output.system.push(text);
+      },
+    };
+  },
+};
+`;
+}
+function openCodePluginFileName(marker) {
+  return `${openCodePluginId(marker)}.js`;
+}
+function openCodePluginDir(scope, home2, root) {
+  return scope === "project" ? join2(root, ".opencode", "plugins") : join2(home2, ".config", "opencode", "plugins");
+}
+function resolveHookScopeTargets(marker, options) {
+  const home2 = options.homeDir ?? homedir2();
+  const scope = options.scope ?? "user";
+  const root = scope === "project" ? resolve(options.projectDir ?? process.cwd()) : home2;
+  return {
+    scope,
+    home: home2,
+    root,
+    claudeSettingsPath: join2(root, ".claude", "settings.json"),
+    codexHooksPath: join2(root, ".codex", "hooks.json"),
+    codexConfigPath: join2(home2, ".codex", "config.toml"),
+    openCodePluginPath: join2(openCodePluginDir(scope, home2, root), openCodePluginFileName(marker))
+  };
+}
+function installOpenCodeAmbientPlugin(pluginPath, marker, command, timeoutSeconds, onError) {
+  const managedMarker = `${OPENCODE_PLUGIN_MANAGED_PREFIX} ${marker}`;
+  const next = buildOpenCodeAmbientPluginSource(marker, command, timeoutSeconds);
+  try {
+    mkdirSync(dirname2(pluginPath), { recursive: true });
+    const current = existsSync2(pluginPath) ? readFileSync2(pluginPath, "utf-8") : void 0;
+    if (current !== void 0 && !current.includes(managedMarker)) {
+      onError?.(`${pluginPath}: refusing to overwrite unmanaged OpenCode plugin`);
+      return;
+    }
+    if (current !== next) {
+      writeFileSync(pluginPath, next, "utf-8");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onError?.(`${pluginPath}: ${message}`);
+  }
+}
+function resolvePortableHookCommand(execPath, binaryNames, marker, context) {
+  if (binaryNames.length === 0) {
+    return execPath;
+  }
+  const resolvedExec = context.resolveRealPath(execPath);
+  if (!resolvedExec) {
+    return execPath;
+  }
+  for (const name of binaryNames) {
+    if (!name.includes(marker)) {
+      continue;
+    }
+    for (const dir of context.pathEntries) {
+      if (!dir)
+        continue;
+      for (const ext of context.pathExtensions) {
+        const candidate = join2(dir, `${name}${ext}`);
+        const resolvedCandidate = context.resolveRealPath(candidate);
+        if (resolvedCandidate && resolvedCandidate === resolvedExec) {
+          return name;
+        }
+        const shimTarget = context.resolveShimTarget?.(candidate);
+        if (shimTarget && shimTarget === resolvedExec) {
+          return name;
+        }
+      }
+    }
+  }
+  return execPath;
+}
+var NPM_SHIM_SCRIPT_PATTERNS = [
+  // Git Bash / POSIX shim: exec node "$basedir/node_modules/<pkg>/.../cli.js"
+  /"\$basedir\/([^"]+\.[cm]?js)"/,
+  // Windows .cmd shim: "%dp0%\node_modules\<pkg>\...\cli.js"
+  /%~?dp0%?[\\/]([^"\r\n]+\.[cm]?js)/i
+];
+function extractNpmShimScriptPath(content) {
+  for (const pattern of NPM_SHIM_SCRIPT_PATTERNS) {
+    const match = content.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return void 0;
+}
+function buildDefaultPortableCommandContext() {
+  const rawPath = process.env.PATH ?? process.env.Path ?? "";
+  const pathEntries = rawPath.split(delimiter).filter(Boolean);
+  const pathExtensions = process.platform === "win32" ? (
+    // Git Bash resolves the extensionless shim, which PATHEXT omits.
+    ["", ...(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")]
+  ) : [""];
+  return {
+    pathEntries,
+    pathExtensions,
+    resolveRealPath: (absolutePath) => {
+      try {
+        const stat = statSync(absolutePath);
+        if (!stat.isFile()) {
+          return void 0;
+        }
+        return realpathSync2(absolutePath);
+      } catch {
+        return void 0;
+      }
+    },
+    resolveShimTarget: (shimPath) => {
+      try {
+        const relative = extractNpmShimScriptPath(readFileSync2(shimPath, "utf-8"));
+        if (!relative) {
+          return void 0;
+        }
+        return realpathSync2(resolve(dirname2(shimPath), relative));
+      } catch {
+        return void 0;
+      }
+    }
+  };
+}
+function shouldInstallHooksForNodeAxiExecPath(execPath, policy) {
+  const normalized = resolve(execPath).replaceAll("\\", "/");
+  if (!normalized.includes(policy.marker) || normalized.endsWith(".ts")) {
+    return false;
+  }
+  const fileName = basename3(normalized);
+  if (policy.binaryNames?.includes(fileName)) {
+    return true;
+  }
+  return policy.distEntrypoints?.some((entrypoint) => normalized.endsWith(entrypoint.replaceAll("\\", "/"))) ?? false;
+}
+function inferHookOptions(execPath) {
+  if (!execPath) {
+    return void 0;
+  }
+  const normalized = execPath.replaceAll("\\", "/");
+  const match = normalized.match(/(?:^|\/)dist\/bin\/([^/]+)\.js$/);
+  if (match?.[1]) {
+    const marker = match[1];
+    return {
+      execPath,
+      marker,
+      binaryNames: [marker],
+      distEntrypoints: [`dist/bin/${marker}.js`]
+    };
+  }
+  const fileName = normalized.split("/").pop() ?? "";
+  if (!fileName || fileName.includes(".") || fileName === "node") {
+    return void 0;
+  }
+  return {
+    execPath,
+    marker: fileName,
+    binaryNames: [fileName],
+    distEntrypoints: [`dist/bin/${fileName}.js`]
+  };
+}
+function buildInferredHookInstallPolicy(marker, options, inferred) {
+  const binaryNames = options.binaryNames ?? inferred.binaryNames;
+  const distEntrypoints = options.distEntrypoints ?? inferred.distEntrypoints;
+  return (execPath) => shouldInstallHooksForNodeAxiExecPath(execPath, {
+    marker,
+    binaryNames,
+    distEntrypoints
+  });
+}
+function installSessionStartHooks(options = {}) {
+  const inferred = inferHookOptions(options.execPath ?? process.argv[1]);
+  const marker = options.marker ?? inferred?.marker;
+  if (!marker) {
+    return;
+  }
+  const execPath = resolve(options.execPath ?? inferred?.execPath ?? process.argv[1] ?? "");
+  if (!execPath) {
+    return;
+  }
+  const defaultPolicyOptions = inferred ?? {
+    execPath,
+    marker,
+    binaryNames: [marker],
+    distEntrypoints: [`dist/bin/${marker}.js`]
+  };
+  const shouldInstall = options.shouldInstall ?? buildInferredHookInstallPolicy(marker, options, defaultPolicyOptions);
+  if (shouldInstall && !shouldInstall(execPath)) {
+    return;
+  }
+  const binaryNames = options.binaryNames ?? inferred?.binaryNames ?? [];
+  const command = resolvePortableHookCommand(execPath, binaryNames, marker, buildDefaultPortableCommandContext());
+  const targets = resolveHookScopeTargets(marker, options);
+  const jsonTargets = [targets.claudeSettingsPath, targets.codexHooksPath];
+  const codexConfigPath = targets.codexConfigPath;
+  installOpenCodeAmbientPlugin(targets.openCodePluginPath, marker, command, options.timeoutSeconds ?? 10, options.onError);
+  for (const target of jsonTargets) {
+    try {
+      mkdirSync(dirname2(target), { recursive: true });
+      const current = existsSync2(target) ? JSON.parse(readFileSync2(target, "utf-8")) : {};
+      const [updated, changed] = computeSessionStartHookUpdate(current, {
+        marker,
+        command,
+        timeoutSeconds: options.timeoutSeconds
+      });
+      if (changed) {
+        writeFileSync(target, `${JSON.stringify(updated, null, 2)}
+`, "utf-8");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      options.onError?.(`${target}: ${message}`);
+    }
+  }
+  try {
+    mkdirSync(dirname2(codexConfigPath), { recursive: true });
+    const current = existsSync2(codexConfigPath) ? readFileSync2(codexConfigPath, "utf-8") : "";
+    const [updated, changed] = computeCodexConfigUpdate(current);
+    if (changed) {
+      writeFileSync(codexConfigPath, updated, "utf-8");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    options.onError?.(`${codexConfigPath}: ${message}`);
+  }
+}
+function resolveStatusMarker(options, callerName) {
+  const inferred = inferHookOptions(options.execPath ?? process.argv[1]);
+  const marker = options.marker ?? inferred?.marker;
+  if (!marker) {
+    throw new Error(`${callerName}: unable to infer a hook marker from the current process; pass { marker } explicitly`);
+  }
+  return marker;
+}
+function hasManagedJsonHookEntry(path2, marker) {
+  if (!existsSync2(path2)) {
+    return false;
+  }
+  try {
+    const settings = JSON.parse(readFileSync2(path2, "utf-8"));
+    const groups = settings.hooks?.SessionStart ?? [];
+    const inGroups = groups.some((group) => (group.hooks ?? []).some((hook) => isManagedHook(hook, marker)));
+    const legacy = settings.hooks?.session_start ?? [];
+    return inGroups || legacy.some((hook) => isManagedHook(hook, marker));
+  } catch {
+    return false;
+  }
+}
+function hasManagedOpenCodePlugin(path2, marker) {
+  if (!existsSync2(path2)) {
+    return false;
+  }
+  try {
+    return readFileSync2(path2, "utf-8").includes(`${OPENCODE_PLUGIN_MANAGED_PREFIX} ${marker}`);
+  } catch {
+    return false;
+  }
+}
+function isCodexHooksFeatureEnabled(path2) {
+  if (!existsSync2(path2)) {
+    return false;
+  }
+  try {
+    const [, changed] = computeCodexConfigUpdate(readFileSync2(path2, "utf-8"));
+    return !changed;
+  } catch {
+    return false;
+  }
+}
+function sessionStartHookStatus(options = {}) {
+  const marker = resolveStatusMarker(options, "sessionStartHookStatus");
+  const targets = resolveHookScopeTargets(marker, options);
+  return {
+    marker,
+    scope: targets.scope,
+    claude: {
+      installed: hasManagedJsonHookEntry(targets.claudeSettingsPath, marker),
+      path: targets.claudeSettingsPath
+    },
+    codex: {
+      installed: hasManagedJsonHookEntry(targets.codexHooksPath, marker),
+      path: targets.codexHooksPath,
+      userFeatureEnabled: isCodexHooksFeatureEnabled(targets.codexConfigPath),
+      userFeaturePath: targets.codexConfigPath
+    },
+    opencode: {
+      installed: hasManagedOpenCodePlugin(targets.openCodePluginPath, marker),
+      path: targets.openCodePluginPath
+    }
+  };
+}
+function uninstallSessionStartHooks(options = {}) {
+  const inferred = inferHookOptions(options.execPath ?? process.argv[1]);
+  const marker = options.marker ?? inferred?.marker;
+  if (!marker) {
+    return;
+  }
+  const targets = resolveHookScopeTargets(marker, options);
+  for (const target of [targets.claudeSettingsPath, targets.codexHooksPath]) {
+    try {
+      if (!existsSync2(target)) {
+        continue;
+      }
+      const current = JSON.parse(readFileSync2(target, "utf-8"));
+      const [updated, changed] = computeSessionStartHookRemoval(current, marker);
+      if (changed) {
+        writeFileSync(target, `${JSON.stringify(updated, null, 2)}
+`, "utf-8");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      options.onError?.(`${target}: ${message}`);
+    }
+  }
+  const pluginPath = targets.openCodePluginPath;
+  try {
+    if (existsSync2(pluginPath)) {
+      const managedMarker = `${OPENCODE_PLUGIN_MANAGED_PREFIX} ${marker}`;
+      if (readFileSync2(pluginPath, "utf-8").includes(managedMarker)) {
+        rmSync(pluginPath, { force: true });
+      } else {
+        options.onError?.(`${pluginPath}: refusing to remove unmanaged OpenCode plugin`);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    options.onError?.(`${pluginPath}: ${message}`);
+  }
+}
+
 // package.json
 var version = "0.1.0";
 
@@ -1194,7 +1787,7 @@ var VERSION = version;
 
 // src/cli.mjs
 var DIR = path.dirname(fileURLToPath(import.meta.url));
-var SCRIPT = path.join(DIR, "punchlist.mjs");
+var SCRIPT = path.join(DIR, "punchlist-axi.mjs");
 var STATE_DIR = path.join(os.tmpdir(), "punchlist");
 var PREFIX = "/__pe";
 var COOKIE = "__pe_auth";
@@ -1206,7 +1799,8 @@ var FLAGS = {
   show: { port: "v", full: "b" },
   done: { port: "v", failed: "b" },
   status: { port: "v" },
-  stop: { port: "v" }
+  stop: { port: "v" },
+  setup: { project: "b", remove: "b" }
 };
 function usageError(msg, cmd, extra = []) {
   const flags = Object.keys(FLAGS[cmd]).map((f) => `--${f}`).join(", ");
@@ -1273,7 +1867,7 @@ function apiBase(st) {
   return `http://${h.includes(":") ? `[${h}]` : h}:${st.port}${PREFIX}`;
 }
 function readBody(req, limit = 2e6) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     let size = 0;
     const chunks = [];
     req.on("data", (c) => {
@@ -1283,7 +1877,7 @@ function readBody(req, limit = 2e6) {
         req.destroy();
       } else chunks.push(c);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve2(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }
@@ -1341,10 +1935,10 @@ function startOutput(st, state) {
     proxy: { target: st.target, port: st.port, pid: st.pid, state },
     links: l,
     help: [
-      "Send the user the local link exactly (its token sets the access cookie) before you run wait: wait blocks, so a message queued behind it may not reach the user",
+      "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
       "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent",
       ...l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : [],
-      `Run \`${PE} wait --port ${st.port}\` to receive the user's notes`
+      `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first`
     ]
   };
 }
@@ -1606,7 +2200,7 @@ function cmdServe(args) {
   }
   server.listen(port, host, () => {
     fs.mkdirSync(STATE_DIR, { recursive: true });
-    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid };
+    const st = { port, host, target: target.origin, token, auth: !noAuth, pid: process.pid, cwd: process.cwd() };
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
   });
@@ -1749,18 +2343,37 @@ function runningProxies() {
   }).filter((st) => st && alive(st.pid));
 }
 async function home() {
-  const sts = runningProxies();
-  const proxies = await Promise.all(sts.map(async (st) => {
+  const here = process.cwd();
+  const mine = (st) => st.cwd && (here === st.cwd || here.startsWith(st.cwd + path.sep));
+  const sts = runningProxies(), local = sts.filter(mine), others = sts.length - local.length;
+  const proxies = await Promise.all(local.map(async (st) => {
     let pending = "?";
     try {
-      pending = (await (await api(st, "/requests")).json()).filter((i) => i.status === "pending").length;
+      pending = (await (await api(st, "/requests", { signal: AbortSignal.timeout(1500) })).json()).filter((i) => i.status === "pending").length;
     } catch {
     }
     return { port: st.port, target: st.target, pending };
   }));
   return {
-    proxies: proxies.length ? proxies : "0 running",
+    proxies: proxies.length ? proxies : "0 running for this directory",
+    ...others ? { other_proxies: `${others} (started from other directories; see \`${PE} status --port <port>\`)` } : {},
     help: proxies.length ? [`Run \`${PE} wait --port <port>\` to receive notes`, `Run \`${PE} status --port <port>\` to list requests`, `Run \`${PE} --help\` for commands and the loop`] : [`Run \`${PE} start --target <port|url>\` to proxy a dev server`, `Run \`${PE} --help\` for commands and the loop`]
+  };
+}
+async function cmdSetup(args) {
+  if (args._[0] !== "hooks" || args._.length > 1) throw usageError("unknown setup target", "setup", [`Run \`${PE} setup hooks [--project] [--remove]\``]);
+  const scope = args.project ? "project" : "user";
+  const identity = { marker: "punchlist-axi", execPath: SCRIPT, scope };
+  const problems = [];
+  if (args.remove) await uninstallSessionStartHooks({ ...identity, onError: (m) => problems.push(m) });
+  else await installSessionStartHooks({ ...identity, binaryNames: ["punchlist-axi"], shouldInstall: () => true, onError: (m) => problems.push(m) });
+  const st = sessionStartHookStatus(identity);
+  const row = (agent, a) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), "~") });
+  return {
+    setup: `${args.remove ? "removed" : "installed or already up to date"}: SessionStart hooks (${scope} scope)`,
+    agents: [row("claude", st.claude), row("codex", st.codex), row("opencode", st.opencode)],
+    ...problems.length ? { warnings: problems } : {},
+    help: args.remove ? [`Run \`${PE} setup hooks${args.project ? " --project" : ""}\` to install them again`] : ["Each new agent session now starts with the proxies running for its directory", `Run \`${PE} setup hooks --remove${args.project ? " --project" : ""}\` to undo`]
   };
 }
 var PE = `node ${SCRIPT}`;
@@ -1774,6 +2387,7 @@ commands:
   done    report a request back to the browser
   status  list requests on a proxy
   stop    stop a proxy
+  setup   add a SessionStart hook so new agent sessions see running proxies
   serve   run the proxy in the foreground (debugging)
 
 loop: start -> send the user the link -> wait -> edit the source -> done -> wait ...
@@ -1825,10 +2439,18 @@ examples:
   status: `status [--port 4000]
   List the requests on a proxy with counts by state.`,
   stop: `stop [--port 4000]
-  Stop a proxy. No-op when nothing runs.`
+  Stop a proxy. No-op when nothing runs.`,
+  setup: `setup hooks [--project] [--remove]
+  Add a SessionStart hook to Claude Code, Codex and OpenCode: each session starts with the
+  proxies running for its directory (the no-args home view). Safe to re-run.
+  --project  write the project's config (.claude/settings.json, ...) instead of the user's
+  --remove   take the hooks out again
+examples:
+  ${PE} setup hooks
+  ${PE} setup hooks --remove`
 };
 var handler = (fn) => (cmd) => (argv) => fn(parseArgs(cmd, argv));
-var cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop }).map(([k, fn]) => [k, handler(fn)(k)]));
+var cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, show: cmdShow, done: cmdDone, status: cmdStatus, stop: cmdStop, setup: cmdSetup }).map(([k, fn]) => [k, handler(fn)(k)]));
 await runAxiCli({
   description: "Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source",
   version: VERSION,

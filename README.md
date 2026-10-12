@@ -13,17 +13,19 @@ With the skill installed, ask your agent: `/punchlist 5173` (or "let me click th
 By hand:
 
 ```bash
-node scripts/punchlist.mjs start --target 5173      # proxy runs in the background, prints the link
-node scripts/punchlist.mjs wait                     # blocks until you press Send
-node scripts/punchlist.mjs done r1 "1: made it blue"
-node scripts/punchlist.mjs stop
+node scripts/punchlist-axi.mjs start --target 5173      # proxy runs in the background, prints the link
+node scripts/punchlist-axi.mjs wait                     # blocks until you press Send
+node scripts/punchlist-axi.mjs done r1 "1: made it blue"
+node scripts/punchlist-axi.mjs stop
 ```
 
 Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. 🗒 lists your notes; notes survive reloads until sent.
 
 Phone access: `tailscale serve --bg <port>`, then open the HTTPS link that `start` prints. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
-`node scripts/punchlist.mjs --help` is the full guide for agents.
+Optional: `node scripts/punchlist-axi.mjs setup hooks` adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
+
+`node scripts/punchlist-axi.mjs --help` is the full guide for agents.
 
 ## Source hints
 
