@@ -32,7 +32,7 @@ try {
     assert.ok(again.includes(`token=${token}`), 'same auth link');
   });
   await t('start with a different target on a busy port fails', async () => {
-    assert.throws(() => cli('start', '--target', String(TPORT + 1), '--port', String(PPORT)), /already proxies/);
+    assert.throws(() => cli('start', '--target', String(TPORT + 1), '--port', String(PPORT)), e => /already proxies/.test(e.stdout));
   });
   const P = `http://127.0.0.1:${PPORT}`, C = { cookie: `__pe_auth=${token}` };
   const get = (p, h = {}) => fetch(P + p, { headers: { ...C, ...h }, redirect: 'manual' });
@@ -90,12 +90,11 @@ try {
     assert.match(out, /_cta\.html\.erb/);
     execFileSync(process.execPath, [CLI, 'done', 'r1', '1: bigger 2: border', '--port', String(PPORT)]);
     const st = execFileSync(process.execPath, [CLI, 'status', '--port', String(PPORT)]).toString();
-    assert.match(st, /r1\s+done/);
+    assert.match(st, /^  r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });
-  await t('wait times out with exit code 2', async () => {
-    let code = 0;
-    try { execFileSync(process.execPath, [CLI, 'wait', '--port', String(PPORT), '--timeout', '1'], { stdio: 'pipe' }); } catch (e) { code = e.status; }
-    assert.equal(code, 2);
+  await t('wait times out with exit 0 and a definitive empty state', async () => {
+    const out = cli('wait', '--port', String(PPORT), '--timeout', '1');
+    assert.match(out, /^request: none/m);
   });
   await t('stop ends the background proxy', async () => {
     const { pid } = JSON.parse(fs.readFileSync(STATE, 'utf8'));

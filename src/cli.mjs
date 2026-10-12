@@ -20,6 +20,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runAxiCli, AxiError } from 'axi-sdk-js';
+import pkg from '../package.json' with { type: 'json' };
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const DIR = path.dirname(SCRIPT);
@@ -29,42 +31,73 @@ const COOKIE = '__pe_auth';
 
 // ---------------------------------------------------------------- utils
 
-function parseArgs(argv) {
-  const args = { _: [] };
+const SERVE_FLAGS = { target: 'v', port: 'v', host: 'v', 'no-auth': 'b', token: 'v' };
+const FLAGS = {
+  start: SERVE_FLAGS, serve: SERVE_FLAGS,
+  wait: { port: 'v', timeout: 'v', json: 'b' },
+  done: { port: 'v', failed: 'b' },
+  status: { port: 'v' },
+  stop: { port: 'v' },
+};
+
+function usageError(msg, cmd, extra = []) {
+  const flags = Object.keys(FLAGS[cmd]).map(f => `--${f}`).join(', ');
+  return new AxiError(msg, 'VALIDATION_ERROR', [...extra, `Valid flags for \`${cmd}\`: ${flags} (--help always allowed)`]);
+}
+
+// Rejects unknown flags (AXI: never silently drop input). Boolean flags never take a value.
+function parseArgs(cmd, argv) {
+  const spec = FLAGS[cmd], args = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) { args._.push(a); continue; }
     const eq = a.indexOf('=');
-    if (eq > -1) { args[a.slice(2, eq)] = a.slice(eq + 1); continue; }
-    const k = a.slice(2);
-    if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) args[k] = argv[++i];
-    else args[k] = true;
+    const k = eq > -1 ? a.slice(2, eq) : a.slice(2);
+    let v = eq > -1 ? a.slice(eq + 1) : undefined;
+    if (!spec[k]) throw usageError(`unknown flag --${k} for \`${cmd}\``, cmd);
+    if (spec[k] === 'b') {
+      if (v !== undefined) throw usageError(`--${k} takes no value`, cmd);
+      args[k] = true; continue;
+    }
+    if (v === undefined) {
+      v = argv[++i];
+      if (v === undefined || v.startsWith('--')) throw usageError(`--${k} needs a value`, cmd);
+    }
+    args[k] = v;
   }
   return args;
 }
 
 function normalizeTarget(t) {
-  if (!t) die('missing --target (e.g. --target 3000 or --target http://localhost:5173)');
+  if (!t) throw usageError('--target is required (dev server port or URL)', 'start', [`Run \`${PE} start --target 5173\` or \`--target http://localhost:3000\``]);
   t = String(t);
   if (/^\d+$/.test(t)) return `http://localhost:${t}`;
   if (!/^https?:\/\//.test(t)) return `http://${t}`;
   return t.replace(/\/+$/, '');
 }
 
-function die(msg, code = 1) { console.error(`punchlist: ${msg}`); process.exit(code); }
 
 function statePath(port) { return path.join(STATE_DIR, `${port}.json`); }
 
 function loadState(args) {
   if (args.port) {
     const p = statePath(args.port);
-    if (!fs.existsSync(p)) die(`no server on port ${args.port}. Start one with: node ${SCRIPT} start --target <port>`, 3);
+    if (!fs.existsSync(p)) throw notRunning(`no proxy running on port ${args.port}`, args.port);
     return JSON.parse(fs.readFileSync(p, 'utf8'));
   }
   const files = fs.existsSync(STATE_DIR) ? fs.readdirSync(STATE_DIR).filter(f => f.endsWith('.json')) : [];
-  if (!files.length) die(`no running server. Start one with: node ${SCRIPT} start --target <port>`, 3);
+  if (!files.length) throw notRunning('no proxy running');
   files.sort((a, b) => fs.statSync(path.join(STATE_DIR, b)).mtimeMs - fs.statSync(path.join(STATE_DIR, a)).mtimeMs);
   return JSON.parse(fs.readFileSync(path.join(STATE_DIR, files[0]), 'utf8'));
+}
+
+function notRunning(msg, port) {
+  return new AxiError(msg, 'NOT_RUNNING', [`Run \`${PE} start --target <port|url>${port ? ` --port ${port}` : ''}\``]);
+}
+
+async function api(st, p, opts = {}) {
+  try { return await fetch(`${apiBase(st)}${p}`, { ...opts, headers: { 'x-pe-token': st.token, ...opts.headers } }); }
+  catch { throw new AxiError(`proxy on port ${st.port} is not responding`, 'NOT_RESPONDING', [`Run \`${PE} start --target ${st.target} --port ${st.port}\` to restart it`]); }
 }
 
 function apiBase(st) {
@@ -123,17 +156,34 @@ function printInfo(st) {
   console.log(`  Agent:     node ${SCRIPT} wait --port ${st.port}`);
 }
 
+function links(st) {
+  const authPath = st.auth === false ? '/' : `${PREFIX}/auth?token=${st.token}`;
+  const ts = tailscaleName();
+  return { local: `http://${st.host === '0.0.0.0' ? '127.0.0.1' : st.host}:${st.port}${authPath}`, ...(ts ? { tailscale: `https://${ts}${authPath}` } : {}) };
+}
+
+function startOutput(st, state) {
+  const l = links(st);
+  return {
+    proxy: { target: st.target, port: st.port, pid: st.pid, state },
+    links: l,
+    help: [
+      'Send the user the local link exactly (its token sets the access cookie) before you run wait: wait blocks, so a message queued behind it may not reach the user',
+      ...(l.tailscale ? [`For phone access the user runs \`tailscale serve --bg ${st.port}\` and opens the tailscale link (never \`tailscale funnel\`)`] : []),
+      `Run \`${PE} wait --port ${st.port}\` to receive the user's notes`,
+    ],
+  };
+}
+
 // Runs `serve` as a detached child so the agent's shell is free, and returns once it listens.
 async function cmdStart(args) {
-  const target = new URL(normalizeTarget(args.target ?? args._[1])).origin;
+  const target = new URL(normalizeTarget(args.target ?? args._[0])).origin;
   const port = Number(args.port ?? 4000);
   const p = statePath(port);
   const old = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
   if (old && alive(old.pid)) {
-    if (old.target !== target) die(`port ${port} already proxies ${old.target}. Stop it with \`node ${SCRIPT} stop --port ${port}\` or pick another --port`);
-    console.log(`punchlist is already running (pid ${old.pid}).`);
-    printInfo(old);
-    return nextStep(old);
+    if (old.target !== target) throw new AxiError(`port ${port} already proxies ${old.target}`, 'PORT_BUSY', [`Run \`${PE} stop --port ${port}\` first, or pick another --port`]);
+    return startOutput(old, 'already running');
   }
   fs.mkdirSync(STATE_DIR, { recursive: true });
   fs.rmSync(p, { force: true });
@@ -146,20 +196,15 @@ async function cmdStart(args) {
   for (let i = 0; i < 100 && !exited; i++) {
     await new Promise(r => setTimeout(r, 100));
     const st = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
-    if (st?.pid === child.pid) { printInfo(st); console.log(`  Log:       ${logFile}`); return nextStep(st); }
+    if (st?.pid === child.pid) return startOutput(st, 'started');
   }
   if (!exited) child.kill();
-  die(`proxy did not start. Log (${logFile}):\n${fs.readFileSync(logFile, 'utf8').trim()}`);
-}
-
-function nextStep(st) {
-  console.log(`
-Next: give the user the link above. Then run \`node ${SCRIPT} wait --port ${st.port}\` in the foreground and keep
-re-running it (exit 2 = nothing yet). Each request it prints says how to report back with \`done\`.`);
+  const log = fs.readFileSync(logFile, 'utf8').trim().slice(-1000);
+  throw new AxiError(`proxy did not start: ${log || 'no output'}`, 'START_FAILED', [`Full log: ${logFile}`]);
 }
 
 function cmdServe(args) {
-  const target = new URL(normalizeTarget(args.target ?? args._[1]));
+  const target = new URL(normalizeTarget(args.target ?? args._[0]));
   const port = Number(args.port ?? 4000);
   const host = args.host ?? '127.0.0.1';
   const noAuth = args['no-auth'] === true;
@@ -363,11 +408,13 @@ function cmdServe(args) {
     fs.writeFileSync(statePath(port), JSON.stringify(st));
     printInfo(st);
   });
-  server.on('error', e => die(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message));
+  // runs detached with output in the log file, so fail there (start reads it back)
+  server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use (pick another with --port)` : e.message); process.exit(1); });
 
   const cleanup = () => { try { fs.unlinkSync(statePath(port)); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+  return new Promise(() => {}); // keep serving; output goes to the log
 }
 
 // ---------------------------------------------------------------- agent side
@@ -413,55 +460,80 @@ function formatItem(it, port) {
 
 async function cmdWait(args) {
   const st = loadState(args);
-  const deadline = Date.now() + Number(args.timeout ?? 540) * 1000;
+  const secs = Number(args.timeout ?? 540);
+  if (!(secs > 0)) throw usageError('--timeout must be a number of seconds', 'wait');
+  const deadline = Date.now() + secs * 1000;
   while (Date.now() < deadline) {
     const left = Math.max(1000, Math.min(25000, deadline - Date.now()));
-    let r;
-    try { r = await fetch(`${apiBase(st)}/next?timeout=${left}`, { headers: { 'x-pe-token': st.token } }); }
-    catch { die(`server on port ${st.port} is not responding — is it still running?`, 3); }
+    const r = await api(st, `/next?timeout=${left}`);
     if (r.status === 200) {
       const it = await r.json();
-      console.log(args.json ? JSON.stringify(it, null, 2) : formatItem(it, st.port));
-      return;
+      return args.json ? JSON.stringify(it, null, 2) : formatItem(it, st.port);
     }
-    if (r.status !== 204) die(`unexpected ${r.status}: ${await r.text()}`);
+    if (r.status !== 204) throw new AxiError(`unexpected ${r.status} from the proxy: ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
   }
-  console.log('NO_REQUEST — nothing picked yet. Run `wait` again to keep listening.');
-  process.exit(2);
+  return { request: `none (waited ${secs}s)`, help: [`Run \`${PE} wait --port ${st.port}\` to keep listening`] };
 }
 
 async function cmdDone(args) {
+  const id = args._[0];
+  if (!id) throw usageError('request id is required', 'done', [`Run \`${PE} done <id> "<one line per note>"\``]);
   const st = loadState(args);
-  const id = args._[1];
-  if (!id) die('usage: done <id> ["summary"] [--failed]');
-  const r = await fetch(`${apiBase(st)}/requests/${id}/done`, {
-    method: 'POST', headers: { 'x-pe-token': st.token, 'content-type': 'application/json' },
-    body: JSON.stringify({ status: args.failed ? 'failed' : 'done', message: args._.slice(2).join(' ') || null }),
-  }).catch(() => die('server not responding', 3));
-  if (!r.ok) die(`${r.status} ${await r.text()}`);
-  console.log(`marked ${id} as ${args.failed ? 'failed' : 'done'}`);
+  const status = args.failed ? 'failed' : 'done';
+  const r = await api(st, `/requests/${encodeURIComponent(id)}/done`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status, message: args._.slice(1).join(' ') || null }),
+  });
+  if (r.status === 404) throw new AxiError(`no request ${id} on port ${st.port}`, 'NOT_FOUND', [`Run \`${PE} status --port ${st.port}\` to list requests`]);
+  if (!r.ok) throw new AxiError(`proxy refused: ${r.status} ${(await r.text()).slice(0, 300)}`, 'PROXY_ERROR');
+  return { request: { id, status }, help: [`Run \`${PE} wait --port ${st.port}\` for the next batch`] };
 }
 
 async function cmdStatus(args) {
   const st = loadState(args);
-  const r = await fetch(`${apiBase(st)}/requests`, { headers: { 'x-pe-token': st.token } }).catch(() => die('server not responding', 3));
-  const list = await r.json();
-  console.log(`port ${st.port} → ${st.target} (pid ${st.pid})`);
-  for (const i of list) console.log(`  ${i.id}  ${i.status.padEnd(8)} “${i.prompt}”${i.message ? `  → ${i.message}` : ''}`);
-  if (!list.length) console.log('  (no requests yet)');
+  const list = await (await api(st, '/requests')).json();
+  const by = s => list.filter(i => i.status === s).length;
+  return {
+    proxy: { target: st.target, port: st.port, pid: st.pid },
+    count: list.length ? `${list.length} request${list.length === 1 ? "" : "s"} (${by('pending')} pending, ${by('working')} working, ${by('done')} done, ${by('failed')} failed)` : '0 requests - the user has not sent anything yet',
+    ...(list.length ? { requests: list.map(i => ({ id: i.id, status: i.status, prompt: i.prompt })) } : {}),
+    help: [`Run \`${PE} wait --port ${st.port}\` to receive the next batch`],
+  };
 }
 
 function cmdStop(args) {
+  const port = args.port;
+  const p = port ? statePath(port) : null;
+  if ((p && !fs.existsSync(p)) || (!p && !runningProxies().length)) return { stop: `no proxy running${port ? ` on port ${port}` : ''} (no-op)` };
   const st = loadState(args);
-  try { process.kill(st.pid, 'SIGTERM'); console.log(`stopped punchlist on port ${st.port}`); }
-  catch { fs.rmSync(statePath(st.port), { force: true }); console.log('process was already gone; cleaned up state'); }
+  try { process.kill(st.pid, 'SIGTERM'); } catch { fs.rmSync(statePath(st.port), { force: true }); }
+  return { stop: `stopped the proxy on port ${st.port}` };
+}
+
+function runningProxies() {
+  if (!fs.existsSync(STATE_DIR)) return [];
+  return fs.readdirSync(STATE_DIR).filter(f => f.endsWith('.json'))
+    .map(f => { try { return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), 'utf8')); } catch { return null; } })
+    .filter(st => st && alive(st.pid));
+}
+
+async function home() {
+  const sts = runningProxies();
+  const proxies = await Promise.all(sts.map(async st => {
+    let pending = '?';
+    try { pending = (await (await api(st, '/requests')).json()).filter(i => i.status === 'pending').length; } catch {}
+    return { port: st.port, target: st.target, pending };
+  }));
+  return {
+    proxies: proxies.length ? proxies : '0 running',
+    help: proxies.length
+      ? [`Run \`${PE} wait --port <port>\` to receive notes`, `Run \`${PE} status --port <port>\` to list requests`, `Run \`${PE} --help\` for the full guide`]
+      : [`Run \`${PE} start --target <port|url>\` to proxy a dev server`, `Run \`${PE} --help\` for the full guide`],
+  };
 }
 
 // ---------------------------------------------------------------- main
 
-const args = parseArgs(process.argv.slice(2));
-const cmd = args._[0];
-const cmds = { start: cmdStart, serve: cmdServe, wait: cmdWait, done: cmdDone, status: cmdStatus, stop: cmdStop };
 const PE = `node ${SCRIPT}`;
 const GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user taps elements, writes notes and presses Send; you pull the batch, edit the source, report back.
@@ -473,7 +545,7 @@ COMMANDS
       --no-auth only for purely local use.
   ${PE} serve ...          Same as start, but stays in the foreground (debugging).
   ${PE} wait [--port 4000] [--timeout 540] [--json]
-      Block until the user sends a batch. Exit 2 = nothing yet, exit 3 = proxy gone.
+      Block until the user sends a batch. \`request: none\` = nothing yet; exit 1 = error (read error/help).
   ${PE} done <id> "<one line per note>" [--failed] [--port 4000]
   ${PE} status [--port 4000]    List requests.
   ${PE} stop [--port 4000]      Stop the proxy when the user is finished.
@@ -487,8 +559,8 @@ WORKFLOW
   2. Tell the user briefly: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note,
      repeat, then press Send. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P)
      pauses animations. 🗒 lists notes. Notes survive reloads until sent.
-  3. Run wait in the foreground. On exit 2, run it again without commentary; keep going until the
-     user tells you to stop. On exit 3, check the log and run start again.
+  3. Run wait. On \`request: none\`, run it again without commentary; keep going until the user
+     tells you to stop. On an error, follow its help line (usually: run start again).
   4. A request holds notes with targets keyed [1], [2] or [3a], [3b]. Kinds: element (one target),
      elements (apply to all; often a shared partial/component), text (change that exact text; it may
      live in an i18n file), area (empty space boxed; change belongs at that spot in the container).
@@ -510,8 +582,47 @@ KNOWN LIMITS
   Streamed HTML is buffered before injection. Absolute dev-server URLs inside JS bundles are not
   rewritten. Pages in cross-origin iframes cannot be picked.`;
 
-if (!cmds[cmd]) {
-  console.log(GUIDE);
-  process.exit(cmd && !['help', '--help', '-h'].includes(cmd) && !args.help ? 1 : 0);
-}
-await cmds[cmd](args);
+const HELP = {
+  start: `start --target <port|url> [--port 4000] [--host 127.0.0.1] [--no-auth]
+  Start the proxy in the background and print the link for the user. Safe to re-run.
+  --target   dev server port or URL (required)
+  --port     proxy port (default 4000)
+  --host     listen address (default 127.0.0.1; 0.0.0.0 = all interfaces)
+  --no-auth  no access token (purely local use only)
+examples:
+  ${PE} start --target 5173
+  ${PE} start --target http://localhost:3000 --port 4001`,
+  serve: `serve --target <port|url> [same flags as start]
+  Run the proxy in the foreground (debugging). Agents use start.`,
+  wait: `wait [--port 4000] [--timeout 540] [--json]
+  Block until the user presses Send, then print the batch of notes.
+  Prints \`request: none\` (exit 0) when nothing arrives in time: run it again.
+  --port     proxy port (default: most recently started proxy)
+  --timeout  seconds to wait (default 540, under most shell-tool limits)
+  --json     raw request JSON instead of the formatted view
+examples:
+  ${PE} wait --port 4000`,
+  done: `done <id> "<one line per note>" [--failed] [--port 4000]
+  Report a request back to the browser (shown as a toast).
+  --failed   nothing could be done; the message says why
+examples:
+  ${PE} done r1 "1: CTA larger  2: doors time -> 18:00" --port 4000
+  ${PE} done r2 "need the new copy for the hero" --failed`,
+  status: `status [--port 4000]
+  List the requests on a proxy with counts by state.`,
+  stop: `stop [--port 4000]
+  Stop a proxy. No-op when nothing runs.`,
+};
+
+const handler = fn => cmd => argv => fn(parseArgs(cmd, argv));
+const cmds = Object.fromEntries(Object.entries({ start: cmdStart, serve: cmdServe, wait: cmdWait, done: cmdDone, status: cmdStatus, stop: cmdStop })
+  .map(([k, fn]) => [k, handler(fn)(k)]));
+
+await runAxiCli({
+  description: 'Click-to-edit for running web apps: the user marks UI in the browser, you pull the notes and edit the source',
+  version: pkg.version,
+  topLevelHelp: GUIDE + '\n',
+  home,
+  commands: cmds,
+  getCommandHelp: c => HELP[c] ? HELP[c] + '\n' : null,
+});
