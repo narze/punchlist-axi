@@ -2979,7 +2979,7 @@ function startOutput(st, state) {
     links: l,
     help: [
       "Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie",
-      "Tell the user: press \u25CE (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With \u25CE off, selecting text shows an Annotate button. \u23F8 (Alt+Shift+P) pauses animations, \u{1F5D2} lists notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor (\u29C9 Copy copies path:line); when no file is known, \u{1F50E} Locate asks you to find it. \u270E Edit in the note panel edits the file right in the page (with no file known, you find it first)",
+      "Tell the user: press the pointer button (Annotate, Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With Annotate off, selecting text shows an Annotate button. The pause button (Alt+Shift+P) pauses animations, the list button shows the notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor (\u29C9 Copy copies path:line); when no file is known, \u{1F50E} Locate asks you to find it. \u270E Edit in the note panel edits the file right in the page (with no file known, you find it first)",
       "The user can save files from the page while you work: re-read a file before you edit it",
       ...l.tailscale ? ["Also paste the tailscale link: it opens on the user's phone or any other device in their tailnet"] : [],
       `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
@@ -3499,8 +3499,8 @@ function cmdServe(args) {
 function isPayload(x) {
   const notes = x?.notes;
   return Array.isArray(notes) && notes.length > 0 && notes.every((n) => {
-    const { comment, elements } = n ?? {};
-    return typeof comment === "string" && comment.trim() !== "" && Array.isArray(elements) && elements.length > 0;
+    const { kind, comment, elements } = n ?? {};
+    return typeof comment === "string" && comment.trim() !== "" && Array.isArray(elements) && (elements.length > 0 || kind === "page");
   });
 }
 var HTML_LIMIT = 600;
@@ -3517,6 +3517,7 @@ function requestView(it, port, full = false) {
       comment: n.comment,
       page: n.path,
       ...n.frozen ? { frozen: "captured with animations paused" } : {},
+      ...n.kind === "page" && n.title ? { title: n.title } : {},
       ...n.kind === "text" ? { selected: n.text } : {},
       ...n.kind === "area" && n.area ? { area: `${Math.round(n.area.width)}x${Math.round(n.area.height)} at page (${Math.round(n.area.x)}, ${Math.round(n.area.y)})` } : {},
       targets: n.elements.map((e, j) => {
@@ -3553,6 +3554,7 @@ function requestView(it, port, full = false) {
   const help = ["Handle every note (notes may touch the same file), then report once"];
   if (kinds.has("elements")) help.push("kind elements: apply the comment to every target; they often share one partial or component");
   if (kinds.has("text")) help.push("kind text: change exactly the selected text; it may live in an i18n file (config/locales, src/lib/i18n)");
+  if (kinds.has("page")) help.push("kind page: no target, the note is about the whole page; the page path tells you the route (its layout and template)");
   if (kinds.has("area")) help.push("kind area: the user boxed empty space; the change belongs at that spot inside the target");
   if (noHint.length) help.push(`No source hint for [${noHint.join("], [")}]: grep for the visible text, ids, data-* attributes or uncommon classes; the page path tells you the route`);
   if (cut || !full) help.push(`Run \`${PE} show ${it.id} --full --port ${port}\` for selectors, computed styles${cut ? " and the full HTML" : ""}`);

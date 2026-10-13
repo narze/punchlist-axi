@@ -173,6 +173,7 @@ try {
     const payload = { viewport: { w: 390, h: 844 }, notes: [
       { kind: 'element', path: '/', comment: 'make it bigger', elements: [{ label: 'button#buy', selector: '#buy', text: 'Buy', html: '<button id="buy">Buy</button>', styles: { 'font-size': '15px' }, hints: { rails: ['app/views/events/_cta.html.erb'] } }] },
       { kind: 'elements', path: '/', comment: 'pink border', elements: [{ label: 'div.tier', selector: '.tier:nth-of-type(1)', html: '<div class="tier"></div>' }, { label: 'section.big', selector: '.big', html: LONG }] },
+      { kind: 'page', path: '/events/1', title: 'Event', comment: 'darker theme', elements: [] },
     ] };
     const r = await fetch(P + '/__pe/requests', { method: 'POST', headers: { ...C, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
     assert.equal(r.status, 201);
@@ -186,6 +187,8 @@ try {
     assert.doesNotMatch(out, /font-size/, 'computed styles only in show --full');
     assert.match(out, /apply the comment to every target/i, 'help for the elements kind');
     assert.match(out, /no source hint for \[2a\]/i, 'grep tip only for targets without hints');
+    assert.match(out, /kind: page\n {4}comment: darker theme\n {4}page: \/events\/1\n {4}title: Event/, 'a page note has no targets');
+    assert.match(out, /kind page: no target/, 'help for the page kind');
     assert.match(out, /show r1 --full/);
     assert.match(out, /done r1 /);
   });

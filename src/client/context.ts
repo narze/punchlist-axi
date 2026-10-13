@@ -127,6 +127,7 @@ export function describe(n: Pick<Note, 'kind' | 'text' | 'area' | 'elements'>) {
   const first = n.elements[0]?.label ?? '';
   if (n.kind === 'text' && n.text !== undefined) return `text “${n.text.length > 40 ? n.text.slice(0, 40) + '…' : n.text}” in ${first}`;
   if (n.kind === 'elements') return `${n.elements.length} elements: ${n.elements.map(e => e.label).join(', ')}`;
+  if (n.kind === 'page') return 'whole page';
   if (n.kind === 'area' && n.area) return `area ${Math.round(n.area.width)}×${Math.round(n.area.height)} in ${first}`;
   return first;
 }
@@ -137,7 +138,7 @@ export function markdown(list: Note[]) {
     out.push(`### ${i + 1}. ${describe(n)}${n.frozen ? ' (animations paused)' : ''}`);
     out.push(`Page: ${n.path}`);
     const hint = n.elements[0] && bestHint(n.elements[0].hints); if (hint) out.push(`Source: ${hint}`);
-    out.push(`Selector: ${n.elements.map(e => e.selector).join(' , ')}`);
+    if (n.elements.length) out.push(`Selector: ${n.elements.map(e => e.selector).join(' , ')}`);
     if (n.kind === 'text') out.push(`Selected text: "${n.text ?? ''}"`);
     out.push(`Note: ${n.comment}`, '');
   });

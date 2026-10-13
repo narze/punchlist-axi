@@ -60,13 +60,17 @@
     return { kind: t.kind, path: here(), title: document.title, text: t.text, area: t.area, frozen, elements: t.els.map(elementContext) };
   }
   function startDraft(t: Target) {
+    if (t.kind === 'page') { openDraft({ ...t, desc: 'Whole page', hint: here(), file: null, top: false }); return; }
     const snap = snapshot(t);
     const first = snap.elements[0], el = t.els[0];
     if (!first || !el) return;
     // keep the target visible: a target in the lower half gets the sheet at the top
     const r = t.area ? { top: t.area.y - scrollY, bottom: t.area.y - scrollY + t.area.height } : el.getBoundingClientRect();
+    openDraft({ ...t, desc: describe(snap), hint: bestHint(first.hints) || first.selector, file: fileHint(first.hints), top: (r.top + r.bottom) / 2 > innerHeight / 2 });
+  }
+  function openDraft(d: Draft) {
     hover = null; trayOpen = false;
-    draft = { ...t, desc: describe(snap), hint: bestHint(first.hints) || first.selector, file: fileHint(first.hints), top: (r.top + r.bottom) / 2 > innerHeight / 2 };
+    draft = d;
     // focus inside the gesture: early keys aren't lost and iOS opens the keyboard
     flushSync();
     field?.focus({ preventScroll: true });
@@ -263,6 +267,17 @@
       },
     }));
     document.addEventListener('keydown', onKey, true);
+    // fixed sheets sit in the layout viewport; an on-screen keyboard only shrinks the visual one, so pass what it hides
+    const vv = window.visualViewport;
+    if (vv) {
+      const fit = () => {
+        host.style.setProperty('--vv-top', `${String(Math.max(0, vv.offsetTop))}px`);
+        host.style.setProperty('--vv-bottom', `${String(Math.max(0, innerHeight - vv.height - vv.offsetTop))}px`);
+      };
+      fit();
+      vv.addEventListener('resize', fit);
+      vv.addEventListener('scroll', fit);
+    }
     const init = () => { notes = restore(); };
     init();
     document.addEventListener('turbo:load', init);
@@ -293,7 +308,8 @@
     onoverwrite={() => { void saveFile(file?.conflict ?? undefined); }} />
 {/if}
 {#if trayOpen}
-  <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send} />
+  <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send}
+    onpage={() => { startDraft({ kind: 'page', els: [] }); }} />
 {/if}
 <Toolbar {picking} {frozen} count={notes.length} {busy}
   onpick={() => { cancelDraft(); setPicking(!picking); }}
@@ -304,11 +320,14 @@
 <style>
   /* shared by the sheets and toasts; the shadow root keeps all of it off the page */
   :global(*) { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  :global(.sheet) { position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%); bottom: calc(68px + env(safe-area-inset-bottom, 0px));
-    width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 120px); overflow: auto; background: #18181b; color: #fafafa;
+  :global(.sheet) { position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%);
+    /* above the toolbar, or just above an open keyboard (--vv-bottom, set in onMount) */
+    bottom: max(calc(68px + env(safe-area-inset-bottom, 0px)), calc(8px + var(--vv-bottom, 0px)));
+    width: min(520px, calc(100vw - 24px)); max-height: min(calc(100vh - 120px), calc(100dvh - var(--vv-bottom, 0px) - 20px)); overflow: auto; background: #18181b; color: #fafafa;
     border-radius: 12px; padding: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
   :global(.row) { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   :global(.sheet button), .chip { border: 1px solid #3f3f46; background: #27272a; color: #fafafa; border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
   :global(.primary) { background: #7c3aed !important; border-color: #7c3aed !important; margin-left: auto; }
+  :global(.sheet button:disabled) { opacity: .4; cursor: default; }
   .chip { position: fixed; z-index: 2147483647; background: #18181b; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 </style>

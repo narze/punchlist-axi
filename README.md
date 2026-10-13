@@ -23,7 +23,7 @@ Or install it once with `npm i -g punchlist-axi` and run `punchlist-axi start --
 
 The proxy listens on port 4000, or on the next free port when 4000 is busy (like Vite). Running `start` again for the same dev server reuses its proxy. Pass `--port` to require one port. The proxy exits on its own after an hour without requests (page loads, the agent's `wait`); `--idle-timeout <seconds>` changes that, `0` keeps it running.
 
-Open the printed link (its token sets an access cookie). In the page: press ◎ (Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With ◎ off, selecting text shows an Annotate button. ⏸ (Alt+Shift+P) pauses animations. ✎ Edit in the note panel edits the source in the page (see below). 🗒 lists your notes; notes survive reloads until sent.
+Open the printed link (its token sets an access cookie). In the page: press the pointer button (Annotate, Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press **Send**. With Annotate off, selecting text shows an Annotate button. The pause button (Alt+Shift+P) pauses animations. ✎ Edit in the note panel edits the source in the page (see below). The list button shows your notes (+ Page note there adds one about the whole page, no element); notes survive reloads until sent.
 
 Phone access: when Tailscale is installed and connected, the proxy also listens on this machine's tailnet addresses, and `start` prints a second link, `http://<machine>.<tailnet>.ts.net:<port>/...`, that opens on any device in your tailnet. The token is still required. `--no-tailscale` turns this off; `--no-auth` and an explicit `--host` also skip it. Want HTTPS? Run `tailscale serve --bg <port>` yourself. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
@@ -62,7 +62,7 @@ Only source files inside the project (the start directory or `--root`) can be op
 - HTML is buffered before injection, so streamed HTML arrives all at once.
 - Absolute dev-server URLs inside JS bundles are not rewritten (HTML only).
 - Pages in cross-origin iframes cannot be picked.
-- In annotate mode, touch scrolling is blocked on phones; turn ◎ off to scroll.
+- In annotate mode, touch scrolling is blocked on phones; turn Annotate off to scroll.
 - One queue per proxy, no per-user attribution.
 
 ## Develop

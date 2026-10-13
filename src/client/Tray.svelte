@@ -2,8 +2,8 @@
 <script lang="ts">
   import { describe, here, type LiveNote } from './context.ts';
 
-  const { notes, onremove, oncopy, onclear, onsend }: {
-    notes: LiveNote[]; onremove: (i: number) => void; oncopy: () => void; onclear: () => void; onsend: () => void;
+  const { notes, onremove, oncopy, onclear, onsend, onpage }: {
+    notes: LiveNote[]; onremove: (i: number) => void; oncopy: () => void; onclear: () => void; onsend: () => void; onpage: () => void;
   } = $props();
 </script>
 
@@ -20,11 +20,12 @@
       {/each}
     </ul>
   {:else}
-    <p class="empty">No notes yet. Press ◎, then tap or drag on the page.</p>
+    <p class="empty">No notes yet. Press the pointer button (Annotate), then tap or drag on the page, or write a note about the whole page.</p>
   {/if}
   <div class="row">
-    <button class="copy" type="button" onclick={oncopy}>Copy markdown</button>
-    <button class="clear" type="button" onclick={onclear}>Clear</button>
+    <button class="page" type="button" title="A note about the whole page, no element" onclick={onpage}>+ Page note</button>
+    <button class="copy" type="button" disabled={!notes.length} onclick={oncopy}>Copy</button>
+    <button class="clear" type="button" disabled={!notes.length} onclick={onclear}>Clear</button>
     <button class="primary send" type="button" disabled={!notes.length} onclick={onsend}>Send to agent</button>
   </div>
 </div>

@@ -15,7 +15,9 @@
   <div class="label">{draft.desc}</div>
   <div class="where">
     <div class="hint">{draft.hint}</div>
-    {#if draft.file}
+    {#if draft.kind === 'page'}
+      <!-- no element, so no file to open or locate -->
+    {:else if draft.file}
       <button class="open" type="button" title="Open this file in your editor" onclick={onopen}>↗ Open</button>
       <button class="copypath" type="button" title="Copy path:line" onclick={oncopy}>⧉ Copy</button>
       <button class="edit" type="button" title="Edit this file here" onclick={onedit}>✎ Edit</button>
@@ -37,7 +39,7 @@
 </div>
 
 <style>
-  .top { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; }
+  .top { top: calc(12px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)); bottom: auto; }
   .label { font: 12px ui-monospace, monospace; color: #fbbf24; word-break: break-all; }
   .where { display: flex; gap: 8px; align-items: center; }
   .hint { flex: 1; min-width: 0; font: 11px ui-monospace, monospace; color: #a1a1aa; margin-top: 2px; word-break: break-all; }
