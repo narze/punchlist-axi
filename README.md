@@ -14,15 +14,15 @@ Install the skill (Claude Code, Codex, OpenCode, Cursor and others) with `npx sk
 
 ### Zero setup
 
-Punchlist is an AXI, so any agent that can run shell commands can use the CLI directly without installing a skill. With Node 18+ available, just tell your agent (replace `5173` with your dev server's port):
+Punchlist is an AXI, so any agent that can run shell commands can use the CLI directly without installing a skill. With Node 18+ available, just tell your agent:
 
 ```text
-Use `npx -y punchlist-axi` to let me click and annotate changes in my app on port 5173. Read `--help`, start the proxy, share the link, and follow the CLI guidance to handle my notes.
+Use `npx -y punchlist-axi` to let me click and annotate changes in my app. Read `--help`, find my app's running dev server port (ask me if unclear), start the proxy for that server, share the link, and follow the CLI guidance to handle my notes.
 ```
 
 ### Run by hand
 
-By hand, with Node 18+ (no install needed):
+By hand, with Node 18+ (no install needed; replace `5173` with your dev server's port):
 
 ```bash
 npx -y punchlist-axi start --target 5173      # proxy runs in the background, prints the link
@@ -42,6 +42,8 @@ Phone access: when Tailscale is installed and connected, the proxy also listens 
 Optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
 
 `npx -y punchlist-axi --help` is the full guide for agents.
+
+Receiving notes automatically depends on the agent's command runner. Codex should share the link in a progress message, keep its turn active while `wait` runs, and collect the command output (with `write_stdin` when `exec_command` returns a session ID). A background process alone does not guarantee that an ended turn resumes. If the agent has stopped listening, tell it "pick up my Punchlist notes"; sent notes stay queued while the proxy runs. SessionStart hooks supply context when a session starts; they do not wake the agent on Send.
 
 ## Source hints
 
