@@ -2982,7 +2982,7 @@ function startOutput(st, state) {
       "Tell the user: press the pointer button (Annotate, Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With Annotate off, selecting text shows an Annotate button. The pause button (Alt+Shift+P) pauses animations, the list button shows the notes, and notes survive reloads until sent. \u2197 Open in the note panel opens the source file in their editor (\u29C9 Copy copies path:line); when no file is known, \u{1F50E} Locate asks you to find it. \u270E Edit in the note panel edits the file right in the page (with no file known, you find it first)",
       "The user can save files from the page while you work: re-read a file before you edit it",
       ...l.tailscale ? ["Also paste the tailscale link: it opens on the user's phone or any other device in their tailnet"] : [],
-      `Then run \`${PE} wait --port ${st.port}\` to receive the notes - in the background if your harness notifies you when a background command ends (Claude Code: run_in_background), so your reply with the link reaches the user first. Never end your turn without a wait running`
+      listenHelp(st.port)
     ]
   };
 }
@@ -3703,7 +3703,8 @@ var ON_PATH = !VIA_NPX && (process.env["PATH"] ?? "").split(path.delimiter).some
   }
 });
 var PE = VIA_NPX ? "npx -y punchlist-axi" : ON_PATH ? "punchlist-axi" : `node ${SCRIPT}`;
-var listenHelp = (port) => `Run \`${PE} wait --port ${port}\` as a background command (Claude Code: Bash with run_in_background: true), so new notes reach you without the user asking. Never end your turn without a wait running`;
+var WAIT_EXECUTION_GUIDANCE = "Keep wait in the foreground by default. Use a background command only if a tracked job in your harness reliably resumes or notifies the same agent on completion (Claude Code: Bash with run_in_background: true). Codex: keep this turn active; if exec_command returns a session ID, use write_stdin to collect its output. A running command alone does not guarantee a new turn. Do not detach wait with nohup, shell &, disown or redirected output without a verified callback. Do not claim to be listening until you can receive the command output";
+var listenHelp = (port) => `Run \`${PE} wait --port ${port}\` to receive notes. ${WAIT_EXECUTION_GUIDANCE}. Run wait again after every done or timeout until the user tells you to stop`;
 var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
 
@@ -3717,7 +3718,8 @@ commands:
   setup   add a SessionStart hook so new agent sessions see running proxies
   serve   run the proxy in the foreground (debugging)
 
-loop: start -> send the user the link -> wait (in the background) -> edit the source -> done -> wait ...
+loop: start -> send the user the link -> wait -> edit the source -> done -> wait ...
+Read \`${PE} wait --help\` for how to keep receiving notes in your agent harness.
 Every output ends with help lines that name the next command.
 Run \`${PE} <command> --help\` for flags, examples and guidance.`;
 var HELP = {
@@ -3754,12 +3756,16 @@ examples:
   --port     proxy port (default: most recently started proxy)
   --timeout  seconds to wait (default 540, under most shell-tool limits)
   --json     raw request JSON instead of the formatted view
-  Run wait as a background command so you stay free and your harness tells you when it exits:
-  Claude Code: Bash with run_in_background: true. Other harnesses: any background job that
-  reports its exit. No background support: run it in the foreground. Notes queue on the proxy,
-  so none are lost between runs. Run wait again after every done and every timeout, without
-  commentary, until the user tells you to stop: you hear the user only while wait runs.
-  In the background a longer --timeout (e.g. 3600) means fewer empty wake-ups.
+  Share the proxy link in a progress message before waiting, so the user can open it.
+  ${WAIT_EXECUTION_GUIDANCE}.
+  Keep waiting in the active turn when your harness has no completion notifications.
+  Do not send a final reply while expecting
+  a detached wait to wake you. With completion notifications, a longer --timeout
+  (e.g. 3600) means fewer empty wake-ups.
+  Run wait again after every done and every timeout until the user tells you to stop.
+  Notes queue on the proxy while it runs. If your turn already ended, the user can ask
+  you to pick up the queued notes; run wait to receive them. SessionStart hooks provide
+  context at session start, not a notification when the user presses Send.
 finding the source (in this order):
   1. svelte file:line:col (or React _debugSource) - open it directly
   2. rails templates - the last entry is the innermost partial. Needs

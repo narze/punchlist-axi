@@ -25,7 +25,7 @@ node "${CLAUDE_SKILL_DIR}/../../../scripts/punchlist-axi.mjs" start --target <po
 
 Do not wrap `start` in `nohup` or `&`; it already runs the proxy in the background.
 
-**Paste the full links from the `start` output into your reply text** (the local link, and the tailscale link when there is one, for the user's phone). The user does not see command output, and "I'll share the link" without the URL leaves them stuck. Then run `wait` as the `start` output says (as a background command, so new notes reach you without the user asking), and follow the instructions it prints.
+**Paste the full links from the `start` output into your reply text** (the local link, and the tailscale link when there is one, for the user's phone). The user does not see command output, and "I'll share the link" without the URL leaves them stuck. Share the links in a progress message before waiting. Then run `wait` as the `start` output says and follow the instructions it prints. Background completion behavior depends on your agent harness; read `wait --help` rather than assuming a running command will wake an ended turn.
 
 ## Request
 

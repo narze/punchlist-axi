@@ -200,7 +200,7 @@ try {
   await t('done and status after a batch', () => {
     const out = cli('done', 'r1', '1: bigger 2: border', '--port', String(PPORT));
     assert.match(out, /wait --port \d+.*background command/, 'tells the agent to listen again in the background');
-    assert.match(out, /without the user asking/, 'says why: the user should not have to prompt again');
+    assert.match(out, /Codex: keep this turn active.*write_stdin/, 'tells Codex to collect output in the active turn');
     const st = cli('status', '--port', String(PPORT));
     assert.match(st, /^ {2}r1,done,/m); assert.match(st, /1 request \(0 pending, 0 working, 1 done/);
   });

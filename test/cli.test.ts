@@ -71,9 +71,11 @@ t('wait --help carries the source-finding guidance', () => {
   const out = run('wait', '--help').out;
   assert.match(out, /annotate_rendered_view_with_filenames/); assert.match(out, /smallest change/);
 });
-t('wait --help says to run wait in the background and always restart it', () => {
+t('wait --help explains completion notifications, Codex polling and restarting', () => {
   const out = run('wait', '--help').out;
-  assert.match(out, /background command/); assert.match(out, /run_in_background/); assert.match(out, /run wait again/i);
+  assert.match(out, /background command only if/); assert.match(out, /run_in_background/); assert.match(out, /run wait again/i);
+  assert.match(out, /foreground by default/); assert.match(out, /Codex:.*exec_command/); assert.match(out, /write_stdin/);
+  assert.match(out, /do not detach/i); assert.match(out, /not a notification/);
 });
 t('done --help explains partial failures', () => {
   assert.match(run('done', '--help').out, /still do the others/);
