@@ -20,7 +20,8 @@ export interface ElementContext {
 // The proxy only checks that a note has a comment and targets, so it reads every other target field defensively.
 export type LooseElement = Partial<Omit<ElementContext, 'hints'>> & { hints?: Partial<Hints> };
 
-export type NoteKind = 'element' | 'elements' | 'text' | 'area';
+// page: a note about the whole page, with no targets
+export type NoteKind = 'element' | 'elements' | 'text' | 'area' | 'page';
 
 export interface Note<E = ElementContext> {
   kind: NoteKind;

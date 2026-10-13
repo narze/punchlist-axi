@@ -44,6 +44,8 @@ Object.assign(w, {
   } }),
   EventSource: class { onmessage = (_e: { data: string }) => undefined; constructor() { io.es = this; } }, // the client sets onmessage
   CSS: { escape: (s: string) => s.replace(/[^\w-]/g, c => '\\' + c) },
+  // a phone: the on-screen keyboard shrinks only the visual viewport
+  visualViewport: Object.assign(new w.EventTarget(), { height: w.innerHeight, offsetTop: 0 }),
 });
 d.elementFromPoint = () => io.target ?? null;
 // jsdom cannot follow an editor URL or copy: record them instead
@@ -63,6 +65,14 @@ const tool = (a: string) => { q(`[data-act="${a}"]`).click(); };
 const tap = (el: Element) => { io.target = el; for (const t of ['pointerdown', 'pointerup']) d.dispatchEvent(new w.MouseEvent(t, { bubbles: true, clientX: 5, clientY: 5 })); };
 const type = (text: string) => { field().value = text; field().dispatchEvent(new w.Event('input', { bubbles: true })); };
 const add = (text: string) => { type(text); q('.add').click(); };
+
+const vv = w.visualViewport as unknown as EventTarget & { height: number; offsetTop: number };
+const hostVar = (n: string) => must(d.querySelector<HTMLElement>('punchlist-root')).style.getPropertyValue(n);
+assert.equal(hostVar('--vv-bottom'), '0px');
+vv.height = w.innerHeight - 300; vv.offsetTop = 40; vv.dispatchEvent(new w.Event('resize'));
+assert.deepEqual([hostVar('--vv-top'), hostVar('--vv-bottom')], ['40px', '260px'], 'sheets learn what the keyboard hides, so they sit above it');
+vv.height = w.innerHeight; vv.offsetTop = 0; vv.dispatchEvent(new w.Event('resize'));
+assert.equal(hostVar('--vv-bottom'), '0px', 'and drop back when it closes');
 
 let appClicked = false; byId('buy').addEventListener('click', () => { appClicked = true; });
 tool('pick'); tool('freeze');
@@ -96,6 +106,18 @@ assert.equal(n1.kind, 'element'); assert.equal(n1.elements[0]?.selector, '#buy')
 assert.equal(n1.elements[0].hints.rails.at(-1), 'app/views/events/_cta.html.erb');
 assert.equal(n2.kind, 'text'); assert.equal(n2.text, '18:30'); assert.equal(n2.elements[0]?.label, 'p.after');
 assert.equal(q('.count').textContent, '0', 'notes cleared after send');
+
+// the tray: nothing to send, copy or clear without notes; a page note needs no element (request r2)
+tool('tray'); await sleep(0);
+for (const b of ['.tray .send', '.tray .copy', '.tray .clear']) assert.ok((q(b) as HTMLButtonElement).disabled, `${b} is disabled with no notes`);
+q('.tray .page').click();
+assert.ok(!shown('.tray'), 'the tray gives way to the note panel');
+assert.equal(R.activeElement, field(), 'ready to type');
+assert.equal(q('.panel .label').textContent, 'Whole page');
+assert.ok(!shown('.panel .locate') && !shown('.panel .edit'), 'no file to locate or edit');
+add('make the whole page darker'); await sleep(0);
+tool('send'); await sleep(30);
+assert.deepEqual(sent().notes.map(n => [n.kind, n.comment, n.path, n.elements.length]), [['page', 'make the whole page darker', '/events/1', 0]]);
 
 // Open in editor: the button shows only for hints that name a file
 tool('pick');
@@ -136,7 +158,7 @@ assert.ok(shown('.panel'), 'the note panel stays open');
 assert.equal(field().value, 'half typed', 'the draft text is kept');
 assert.equal(q('.count').textContent, '0', 'a locate request is not a note');
 w.localStorage.setItem('__pe_autoreload', '1');
-const update: ServerEvent = { type: 'update', item: { id: 'r2', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
+const update: ServerEvent = { type: 'update', item: { id: 'r3', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
 must(io.es).onmessage({ data: JSON.stringify(update) });
 await sleep(0);
 assert.match(q('.toasts').textContent, /found src\/PriceTag\.vue:3/, 'the result shows as a toast');
@@ -216,7 +238,7 @@ tap(comp); io.sent = undefined; io.editor = undefined;
 q('.edit').click(); await sleep(10);
 assert.equal(sent().edit, true, 'the agent learns the file is for the editor here');
 io.disk = { file: 'src/PriceTag.vue', content: '<template/>', etag: 'v1' };
-const found: ServerEvent = { type: 'update', item: { id: 'r3', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
+const found: ServerEvent = { type: 'update', item: { id: 'r4', kind: 'locate', status: 'done', message: 'found src/PriceTag.vue:3', label: 'x', prompt: 'x', file: { file: 'src/PriceTag.vue', line: 3 } } };
 must(io.es).onmessage({ data: JSON.stringify(found) });
 await sleep(10);
 assert.equal(io.read, 'src/PriceTag.vue');
