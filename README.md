@@ -8,7 +8,19 @@ Nothing in your app changes. It works in front of Rails (Turbo), SvelteKit/Vite,
 
 ## Use
 
+### Agent setup
+
 Install the skill (Claude Code, Codex, OpenCode, Cursor and others) with `npx skills add narze/punchlist-axi --skill punchlist`, then ask your agent: `/punchlist 5173` (or "let me click the element I want changed").
+
+### Zero setup
+
+Punchlist is an AXI, so any agent that can run shell commands can use the CLI directly without installing a skill. With Node 18+ available, just tell your agent (replace `5173` with your dev server's port):
+
+```text
+Use `npx -y punchlist-axi` to let me click and annotate changes in my app on port 5173. Read `--help`, start the proxy, share the link, and follow the CLI guidance to handle my notes.
+```
+
+### Run by hand
 
 By hand, with Node 18+ (no install needed):
 
