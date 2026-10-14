@@ -15,8 +15,8 @@ hold(0.4, PROBLEM.len);
 // Crab Code: /punchlist, the proxy starts, the link
 export const INTRO = { start: PROBLEM.len, len: 5.9, end: PROBLEM.len + 5.9 };
 hold(0.4, INTRO.len);
-// "runs along your web app", then the punch list
-export const ALONG = { start: at, len: 1.7 };
+// "runs along your web app", the same page on a phone (Tailscale), then the punch list
+export const ALONG = { start: at, len: 3.3 };
 hold(0.4, ALONG.len);
 play(0.4, ev.pick.t - 0.9, 1.5);
 play(ev.pick.t - 0.9, ev.typing[0]!.t);

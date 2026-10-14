@@ -1,7 +1,7 @@
 // The whole video: the problem, Crab Code starts punchlist, the browser under a moving camera, step stickers, Crab Code
 // editing in a split screen, the typo fixed in the page's editor, confetti, outro, music and sound effects.
 import type { ReactNode } from 'react';
-import { AbsoluteFill, spring, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Img, spring, staticFile, useCurrentFrame } from 'remotion';
 import { Before, Browser } from './Browser';
 import { bursts, camera, follow, HOME, key, mid, WIN } from './camera';
 import { CrabCode, LINK_AT, linkPos, PROMPT, type Box } from './CrabCode';
@@ -9,7 +9,7 @@ import { AGENT, ALONG, EDIT, FPS, INTRO, OUTRO, RESULT, SAVED, ox } from './cut'
 import { Background, Burst, Confetti, Cursor, Outro, Sticker } from './parts';
 import { Problem, problemCues } from './Problem';
 import { type Cue, Sounds } from './Sounds';
-import { FUN, hard, LILAC, MINT, PINK, PURPLE, SKY, YELLOW } from './style';
+import { FUN, hard, INK, LILAC, MINT, PINK, PURPLE, SKY, YELLOW } from './style';
 import { ev, type Rect } from './timeline';
 
 const s = (raw: number) => ox(raw);
@@ -26,10 +26,11 @@ const introKeys = [key(I, 1), key(I + 0.5, 1.3, { x: 960, y: 880 }, 0.6), key(PR
 
 interface Note { from: number; to: number; x: number; y: number; text: ReactNode; bg: string; rot?: number; size?: number; step?: number }
 const stickers: Note[] = [
-  { from: I + 0.35, to: I + 2.4, x: 960, y: 62, step: 1, bg: YELLOW, text: 'Ask your agent: /punchlist' },
+  { from: I + 0.35, to: I + 2.4, x: 960, y: 62, step: 1, bg: YELLOW, text: 'Use the /punchlist skill' },
   { from: I + 3.95, to: INTRO.end - 0.15, x: 960, y: 62, step: 2, bg: PINK, text: 'Open the link it shares' },
-  { from: ALONG.start - 0.05, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
-  { from: ALONG.start + 0.35, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 1030, rot: 2, size: 30, bg: SKY, text: 'no changes to your app · any framework' },
+  { from: ALONG.start - 0.05, to: ALONG.start + 1.45, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
+  { from: ALONG.start + 0.35, to: ALONG.start + 1.45, x: 960, y: 1030, rot: 2, size: 30, bg: SKY, text: 'no changes to your app · any framework' },
+  { from: ALONG.start + 1.5, to: ALONG.start + ALONG.len + 0.2, x: 860, y: 58, rot: 2, size: 54, bg: PINK, text: '📱 Open it on your phone too, via Tailscale' },
   { from: s(ev.pick.t) - 0.5, to: s(ev.cta.t) - 0.75, x: 960, y: 380, step: 3, bg: YELLOW, text: 'Turn on Annotate' },
   { from: s(ev.cta.t) - 0.6, to: s(ev.typing[0]!.t) + 0.1, x: 1460, y: 540, rot: 2, step: 4, bg: PINK, text: 'Click anything' },
   { from: s(ev.typing[0]!.t) + 0.1, to: s(ev.add[0]!.t) + 0.3, x: 940, y: 170, rot: -2, step: 5, bg: MINT, text: 'Say what should change' },
@@ -55,6 +56,7 @@ const cues: Cue[] = [
   { t: PROMPT.submit, sound: 'tick', volume: 0.7 },
   { t: POINT.click, sound: 'pop', volume: 0.7 },
   { t: INTRO.end - 0.7, sound: 'whoosh', volume: 0.6 },
+  { t: ALONG.start + 1.35, sound: 'whoosh', volume: 0.5 },
   ...ev.typing.flatMap((n, i) => ticks(s(n.t), s(ev.typed[i]!.t), 0.07, 0.22)),
   ...ticks(s(ev.editTyping.t), s(ev.editTyped.t), 0.11, 0.35),
   ...bursts.map(b => ({ t: b.t, sound: 'pop' as const, volume: 0.7 })),
@@ -79,6 +81,24 @@ function Circle({ from, to, rect }: { from: number; to: number; rect: Rect }) {
       <ellipse cx={w / 2 + 10} cy={h / 2 + 10} rx={w / 2} ry={h / 2} fill="none" stroke="#ec4899" strokeWidth={6} strokeLinecap="round"
         strokeDasharray={len} strokeDashoffset={len * (1 - p)} transform={`rotate(-4 ${w / 2 + 10} ${h / 2 + 10})`} />
     </svg>
+  );
+}
+
+// the same page on a phone (capture.ts screenshots it at 390x844): slides in beside the browser, then away
+function Phone({ from, to }: { from: number; to: number }) {
+  const f = useCurrentFrame();
+  const sp = (at: number, damping: number) => spring({ frame: f - at * FPS, fps: FPS, config: { damping, stiffness: 120 } });
+  const s = sp(from, 12) - sp(to - 0.35, 16);
+  if (s <= 0.001) return null;
+  const w = 330;
+  return (
+    <div style={{ position: 'absolute', left: 1450, top: 190, width: w, padding: 12, background: INK, borderRadius: 58, boxShadow: hard(14),
+      transform: `translateX(${(1 - s) * 900}px) rotate(${6 + (1 - s) * 20}deg)` }}>
+      <div style={{ position: 'relative', borderRadius: 46, overflow: 'hidden', background: '#fff' }}>
+        <Img src={staticFile('phone.png')} style={{ display: 'block', width: '100%' }} />
+        <div style={{ position: 'absolute', top: 10, left: '50%', width: 96, height: 26, marginLeft: -48, borderRadius: 20, background: INK }} />
+      </div>
+    </div>
   );
 }
 
@@ -124,6 +144,7 @@ export function Demo() {
       </AbsoluteFill>
       <Before from={RESULT.start + 0.15} to={RESULT.start + 1.75} raw={ev.done.t - 0.3} />
 
+      <Phone from={ALONG.start + 1.35} to={ALONG.start + ALONG.len + 0.1} />
       {stickers.map(n => <Sticker key={n.from} {...n}>{n.text}</Sticker>)}
       {/* a quick flash over the jump from the editor to the reloaded page */}
       <AbsoluteFill style={{ background: '#fff', opacity: Math.max(0, 1 - Math.abs(t - SAVED.start) / 0.12) * 0.85, pointerEvents: 'none' }} />

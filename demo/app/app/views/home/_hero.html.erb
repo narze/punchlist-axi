@@ -4,6 +4,7 @@
   .lead { font-size: 19px; color: #57534e; margin: 0 0 28px; max-width: 30em; }
   .cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }
   .art { aspect-ratio: 16 / 10; border-radius: 24px; background: radial-gradient(circle at 30% 30%, #fbbf24, #b45309 55%, #451a03); position: relative; overflow: hidden; }
+  @media (max-width: 600px) { .hero { grid-template-columns: 1fr; gap: 24px; padding: 8px 20px 24px; } h1 { font-size: 38px; } .lead { font-size: 17px; } }
   .art::after { content: "☕"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 96px; }
 </style>
 <section class="hero">

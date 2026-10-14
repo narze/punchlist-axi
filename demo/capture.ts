@@ -2,6 +2,7 @@
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
 // a clicked note and a dragged box, Send, then a fake agent (string edits on the copy) answers with `done` and the page reloads itself;
 // last, the user fixes a typo themselves in the page's code editor (✎ Edit, ⌘S, Reload).
+// Also writes demo/out/phone.png, the page at 390x844 as a phone shows it.
 // Writes demo/out/raw.mp4 (1440p, so zoomed-in shots stay sharp, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
 // scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
 // start of the video, for the edit in demo/video/ (it draws the terminal and points the camera with them).
@@ -126,6 +127,13 @@ if (!link) throw new Error(`no link in:\n${started}`);
 
 const browser = await chromium.launch({ executablePath: process.env['CHROME'] ?? '/usr/bin/chromium' });
 try {
+  // the same page on a phone (the video's Tailscale moment), before anything changes
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  const mobile = await phone.newPage();
+  await mobile.goto(link);
+  await mobile.locator('punchlist-root [data-act="pick"]').waitFor(); await sleep(500);
+  await mobile.screenshot({ path: path.join(out, 'phone.png') });
+  await phone.close();
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE });
   await context.addInitScript(cursor);
   // the toast's "auto" switch: the page reloads itself when the agent reports done

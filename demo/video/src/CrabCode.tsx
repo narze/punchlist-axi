@@ -38,6 +38,7 @@ export const transcript: Row[] = [
   said(I + 2.2, 'Your dev server is on :5199. I’ll put punchlist in front of it, on :4000.'),
   tool(I + 2.6, 'Bash', 'npx -y punchlist-axi start --target 5199'),
   result(I + 3.0, 'proxy: started on port 4000'),
+  more(I + 3.15, 'tailscale: http://devbox.your-tailnet.ts.net:4000  (opens on your phone)'),
   said(I + 3.55, 'Open this link, press Annotate, click what should change, then Send:'),
   { ...row(LINK_AT, txt('  '), txt(link, { color: BLUE, underline: true })), link: true },
   tool(I + 4.15, 'Bash', 'npx -y punchlist-axi wait'),
