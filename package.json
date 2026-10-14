@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsx build.ts",
     "gallery": "tsx gallery/serve.ts",
-    "typecheck": "tsc -p . && tsc -p src && svelte-check --tsconfig src/client/tsconfig.json --fail-on-warnings --output machine && svelte-check --tsconfig gallery/tsconfig.json --fail-on-warnings --output machine && tsc -p test",
+    "demo:capture": "tsx demo/capture.ts",
+    "typecheck": "tsc -p . && tsc -p src && svelte-check --tsconfig src/client/tsconfig.json --fail-on-warnings --output machine && svelte-check --tsconfig gallery/tsconfig.json --fail-on-warnings --output machine && tsc -p test && tsc -p demo",
     "lint": "eslint --max-warnings 0 .",
     "check": "pnpm run --silent typecheck && pnpm run --silent lint",
     "pretest": "pnpm run --silent build",
@@ -52,6 +53,7 @@
     "eslint-plugin-svelte": "^3.23.1",
     "jsdom": "^24.0.0",
     "launch-editor": "^2.14.2",
+    "playwright-core": "^1.64.0",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "tsx": "^4.23.15",

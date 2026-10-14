@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roastery - fresh coffee, every week</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #292524; background: #fafaf9; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 48px; }
+  .logo { font-weight: 800; font-size: 22px; letter-spacing: -.02em; }
+  .logo span { color: #b45309; }
+  nav a { color: #57534e; text-decoration: none; margin-left: 28px; font-size: 15px; }
+  .hero { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding: 16px 48px 32px; }
+  h1 { font-size: 52px; line-height: 1.05; letter-spacing: -.03em; margin: 0 0 16px; }
+  .lead { font-size: 19px; color: #57534e; margin: 0 0 28px; max-width: 30em; }
+  /* cta */ .cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }
+  .art { aspect-ratio: 16 / 10; border-radius: 24px; background: radial-gradient(circle at 30% 30%, #fbbf24, #b45309 55%, #451a03); position: relative; overflow: hidden; }
+  .art::after { content: "☕"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 96px; }
+  .plans { padding: 8px 48px 48px; }
+  h2 { font-size: 28px; letter-spacing: -.02em; margin: 0 0 16px; }
+  /* grid */ .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .card { background: #fff; border: 1px solid #e7e5e4; border-radius: 4px; padding: 12px; }
+  .card h3 { margin: 0 0 4px; font-size: 18px; }
+  .price { font-size: 32px; font-weight: 800; letter-spacing: -.02em; }
+  .price small { font-size: 15px; font-weight: 500; color: #78716c; }
+  .card p { margin: 8px 0 0; color: #57534e; font-size: 15px; }
+</style>
+</head>
+<body>
+<!-- BEGIN app/views/layouts/application.html.erb -->
+<nav><div class="logo">Roast<span>ery</span></div><div><a href="#plans">Plans</a><a href="#">Origins</a><a href="#">Sign in</a></div></nav>
+<!-- BEGIN app/views/home/index.html.erb -->
+<!-- BEGIN app/views/home/_hero.html.erb -->
+<section class="hero">
+  <div>
+    <h1>Fresh coffe, roasted the week you drink it.</h1>
+    <p class="lead">Single-origin beans from small farms, roasted on Monday and at your door by Thursday. Pause or cancel any time.</p>
+    <button class="cta">Start my subscription</button>
+  </div>
+  <div class="art" role="img" aria-label="A cup of coffee"></div>
+</section>
+<!-- END app/views/home/_hero.html.erb -->
+<!-- BEGIN app/views/home/_plans.html.erb -->
+<section class="plans" id="plans">
+  <h2>Pick a plan</h2>
+  <div class="grid">
+    <div class="card"><h3>Taster</h3><div class="price">$12<small> / week</small></div><p>250 g, one origin, rotating every week.</p></div>
+    <div class="card"><h3>Daily</h3><div class="price">$22<small> / week</small></div><p>500 g, two origins, for a cup or two a day.</p></div>
+    <div class="card"><h3>Office</h3><div class="price">$59<small> / week</small></div><p>2 kg, house blend, for the whole team.</p></div>
+  </div>
+</section>
+<!-- END app/views/home/_plans.html.erb -->
+<!-- END app/views/home/index.html.erb -->
+<!-- END app/views/layouts/application.html.erb -->
+</body>
+</html>
