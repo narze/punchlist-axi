@@ -13,7 +13,7 @@ import { yaml } from '@codemirror/legacy-modes/mode/yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 export interface EditorOptions {
-  root: ShadowRoot;
+  root: ShadowRoot | Document; // the picker's shadow root; the gallery's page
   file: string;
   doc: string;
   line?: number | undefined;

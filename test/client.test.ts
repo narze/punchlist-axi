@@ -57,6 +57,8 @@ w.eval(client.replace(/\bimport\(/, 'window.__editorImport('));
 
 const R = must(must(d.querySelector('punchlist-root')).shadowRoot), q = (s: string) => must(R.querySelector<HTMLElement>(s));
 const shown = (s: string) => R.querySelector(s) !== null;
+assert.ok([...R.querySelectorAll('style')].some(s => s.textContent.includes('.sheet {')), 'the shared sheet styles are in the shadow root');
+assert.ok(!d.head.innerHTML.includes('.sheet'), 'and not on the page');
 const field = () => must(R.querySelector('textarea'));
 const sent = () => must(io.sent);
 const byId = (id: string) => must(d.getElementById(id));

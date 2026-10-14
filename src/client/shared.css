@@ -1,0 +1,12 @@
+/* Shared by the sheets and toasts. index.ts puts it in the picker's shadow root, so none of it reaches the page;
+   the component gallery (gallery/) puts it on its own page. */
+* { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.sheet { position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%);
+  /* above the toolbar, or just above an open keyboard (--vv-bottom, set by App) */
+  bottom: max(calc(68px + env(safe-area-inset-bottom, 0px)), calc(8px + var(--vv-bottom, 0px)));
+  width: min(520px, calc(100vw - 24px)); max-height: min(calc(100vh - 120px), calc(100dvh - var(--vv-bottom, 0px) - 20px)); overflow: auto; background: #18181b; color: #fafafa;
+  border-radius: 12px; padding: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.sheet button { border: 1px solid #3f3f46; background: #27272a; color: #fafafa; border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.primary { background: #7c3aed !important; border-color: #7c3aed !important; margin-left: auto; }
+.sheet button:disabled { opacity: .4; cursor: default; }

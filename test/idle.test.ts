@@ -27,7 +27,7 @@ try {
     const r = cli('start', '--target', TARGET, '--port', String(PORT), '--idle-timeout', '2');
     assert.equal(r.code, 0, r.out);
     const { pid } = JSON.parse(fs.readFileSync(STATE, 'utf8')) as { pid: number };
-    for (let i = 0; i < 6; i++) { await sleep(500); assert.equal(cli('status', '--port', String(PORT)).code, 0); }
+    for (let i = 0; i < 6; i++) { await sleep(500); const s = cli('status', '--port', String(PORT)); assert.equal(s.code, 0, s.out); }
     assert.ok(alive(pid), 'still running after 3s of requests');
     const w = cli('wait', '--port', String(PORT), '--timeout', '4'); // one long-poll that outlasts the idle timeout
     assert.equal(w.code, 0, w.out); assert.match(w.out, /request: none/);
