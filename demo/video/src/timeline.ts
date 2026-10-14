@@ -12,10 +12,10 @@ function one(kind: string, text = '', nth = 0): Mark & { rect: Rect } {
   return { rect: { x: 640, y: 360, width: 0, height: 0 }, ...m };
 }
 
-const n = [0, 1, 2];
+const n = [0, 1];
 export const ev = {
+  // the punch list: a clicked note, a dragged box, Send, the agent's fix, Reload
   pick: one('click', 'data-act="pick"'),
-  h1: one('click', 'h1'),
   cta: one('click', '.cta'),
   typing: n.map(i => one('typing', '', i)),
   typed: n.map(i => one('typed', '', i)),
@@ -26,9 +26,22 @@ export const ev = {
   done: one('scene', 'done'),
   reload: one('click', 'Reload'),
   result: one('scene', 'result'),
+  // the user's own fix in the page's editor
+  edit: one('scene', 'edit'),
+  editPick: one('click', 'data-act="pick"', 2),
+  h1: one('click', 'h1'),
+  editBtn: one('click', '.edit'),
+  editor: one('editor'),
+  word: one('click', 'editor text'),
+  editTyping: one('typing', '', 2),
+  editTyped: one('typed', '', 2),
+  save: one('scene', 'save'),
+  close: one('click', '.close'),
+  reload2: one('click', 'Reload', 1),
+  edited: one('scene', 'edited'),
 };
-// capture.ts holds the fixed page for 2.5 s after the result mark
-export const END = ev.result.t + 2.4;
+// capture.ts holds the last page for 2.5 s
+export const END = ev.edited.t + 2.4;
 
 // the notes as `wait` printed them: label, comment and the innermost template
 export const received = (() => {
@@ -37,3 +50,6 @@ export const received = (() => {
   const comments = pick(/comment: "?(.*?)"?$/gm), labels = pick(/label: (.*)$/gm), rails = pick(/rails: (.*)$/gm);
   return comments.map((comment, i) => ({ comment, label: labels[i] ?? '', file: (rails[i] ?? '').split(' > ').at(-1) ?? '' }));
 })();
+
+// the link `start` printed, shown on the usual port
+export const link = `http://localhost:4000/__pe/auth?token=${/token=([\w-]+)/.exec(one('out', 'links:').text)?.[1] ?? ''}`;

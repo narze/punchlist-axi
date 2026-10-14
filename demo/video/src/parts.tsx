@@ -92,30 +92,12 @@ function Wordmark({ from, size }: { from: number; size: number }) {
   );
 }
 
-// the pointer from punchlist's Annotate button (Lucide mouse-pointer-click, ISC)
-function Pointer({ size }: { size: number }) {
+// the mouse pointer, as capture.ts draws it in the page
+export function Cursor({ x, y, scale = 1 }: { x: number; y: number; scale?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 4.1 12 6" /><path d="m5.1 8-2.9-.8" /><path d="m6 12-1.9 2" /><path d="M7.2 2.2 8 5.1" />
-      <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" />
+    <svg style={{ position: 'absolute', left: x - 6, top: y - 3, overflow: 'visible', transform: `scale(${scale})`, transformOrigin: '6px 3px' }} width={42} height={42} viewBox="0 0 24 24">
+      <path d="M4 2l16 10-7 1.5L9.5 21z" fill={INK} stroke="#fff" strokeWidth={1.5} strokeLinejoin="round" />
     </svg>
-  );
-}
-
-export function Title({ len }: { len: number }) {
-  const f = useCurrentFrame(), { fps } = useVideoConfig();
-  const out = interpolate(f, [(len - 0.95) * fps, (len - 0.4) * fps], [0, 1], { ...clamp, easing: p => p * p });
-  if (out >= 1) return null;
-  const badge = spring({ frame: f - 0.45 * fps, fps, config: bouncy });
-  return (
-    <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', transform: `translateY(${-out * 900}px) rotate(${-out * 8}deg)` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 36, marginTop: -90 }}>
-        <div style={{ width: 170, height: 170, borderRadius: '50%', background: PURPLE, border: `7px solid ${INK}`, boxShadow: hard(10), display: 'grid', placeItems: 'center',
-          transform: `scale(${badge}) rotate(${(1 - badge) * -120 + Math.sin(f / 7) * 6}deg)` }}><Pointer size={100} /></div>
-        <Wordmark from={0.1} size={210} />
-      </div>
-      <Sticker from={0.85} to={len + 1} x={960} y={720} rot={-2} bg={MINT} size={52}>click it · note it · your agent fixes it</Sticker>
-    </AbsoluteFill>
   );
 }
 

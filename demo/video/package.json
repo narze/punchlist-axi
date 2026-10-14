@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "studio": "remotion studio",
-    "render": "remotion render Demo ../out/demo.mp4",
+    "studio": "node music.ts 70 && remotion studio",
+    "render": "node music.ts 70 && remotion render Demo ../out/demo.mp4",
     "check": "tsc"
   },
   "dependencies": {
@@ -15,6 +15,7 @@
     "remotion": "4.0.535"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.0",
     "typescript": "~6.0.3"
   }
