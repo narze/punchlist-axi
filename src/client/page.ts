@@ -2,6 +2,7 @@
 import { label, type Box, type Target } from './context.ts';
 
 const MAX_ELS = 6;
+const LONG_PRESS_MS = 350;
 
 export interface Picker {
   picking(): boolean;
@@ -21,21 +22,43 @@ export function watchPage(host: HTMLElement, p: Picker) {
   const at = (x: number, y: number) => { host.style.display = 'none'; const el = document.elementFromPoint(x, y); host.style.display = ''; return pageEl(el) ? el : null; };
   const rect = (a: { x: number; y: number }, b: { x: number; y: number }): Box =>
     ({ left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) });
-  let drag: { x: number; y: number; moved: boolean } | null = null;
+  // a touch drag scrolls the page; it selects only after a long press (`armed`)
+  let drag: { x: number; y: number; moved: boolean; armed: boolean } | null = null;
+  let pressTimer = 0;
+  const endDrag = () => { clearTimeout(pressTimer); drag = null; p.marquee(null); };
 
   // the app never sees clicks in annotate mode
-  const swallow = (e: Event) => { if (p.picking() && !isOurs(e.target as Node)) { e.preventDefault(); e.stopImmediatePropagation(); } };
-  for (const t of ['mousedown', 'mouseup', 'touchstart', 'touchend', 'dblclick', 'contextmenu', 'click'])
+  // a touchend after a scroll cannot be cancelled (Chrome warns if we try)
+  const swallow = (e: Event) => { if (p.picking() && !isOurs(e.target as Node)) { if (e.cancelable) e.preventDefault(); e.stopImmediatePropagation(); } };
+  for (const t of ['mousedown', 'mouseup', 'touchend', 'dblclick', 'contextmenu', 'click'])
     document.addEventListener(t, swallow, { capture: true, passive: false });
+  // cancelling touchstart would block scrolling, so the app only does not see it
+  document.addEventListener('touchstart', e => { if (p.picking() && !isOurs(e.target as Node)) e.stopImmediatePropagation(); }, { capture: true, passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!p.picking() || isOurs(e.target as Node)) return;
+    if (drag?.armed) e.preventDefault(); // selecting, not scrolling
+    e.stopImmediatePropagation();
+  }, { capture: true, passive: false });
 
   document.addEventListener('pointerdown', e => {
     if (!p.picking() || isOurs(e.target as Node)) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    drag = { x: e.clientX, y: e.clientY, moved: false };
+    const touch = e.pointerType === 'touch';
+    clearTimeout(pressTimer);
+    const d = drag = { x: e.clientX, y: e.clientY, moved: false, armed: !touch };
+    if (touch) pressTimer = setTimeout(() => {
+      d.armed = true;
+      if ('vibrate' in navigator) navigator.vibrate(10); // missing on iOS Safari
+      const el = at(d.x, d.y);
+      if (el) p.hover({ box: el.getBoundingClientRect(), label: label(el) });
+    }, LONG_PRESS_MS);
   }, true);
+  document.addEventListener('pointercancel', () => { if (drag) { p.hover(null); endDrag(); } }, true);
   document.addEventListener('pointermove', e => {
     if (!p.picking()) return;
     if (drag) {
+      // moved before the long press: the browser is scrolling, it sends pointercancel
+      if (!drag.armed) { if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) clearTimeout(pressTimer); return; }
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
       if (drag.moved) { p.hover(null); p.marquee(rect(drag, { x: e.clientX, y: e.clientY })); }
       return;
@@ -47,9 +70,9 @@ export function watchPage(host: HTMLElement, p: Picker) {
   document.addEventListener('pointerup', e => {
     if (!p.picking() || !drag) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    const d = drag; drag = null;
-    p.marquee(null);
-    if (!d.moved) { const el = at(e.clientX, e.clientY); if (el) p.pick({ kind: 'element', els: [el] }); return; }
+    const d = drag;
+    endDrag();
+    if (!d.moved) { p.hover(null); const el = at(e.clientX, e.clientY); if (el) p.pick({ kind: 'element', els: [el] }); return; }
     const sel = { left: Math.min(d.x, e.clientX), top: Math.min(d.y, e.clientY), right: Math.max(d.x, e.clientX), bottom: Math.max(d.y, e.clientY) };
     const fits = (r: DOMRect) => r.width > 0 && r.height > 0 && r.left >= sel.left - 2 && r.right <= sel.right + 2 && r.top >= sel.top - 2 && r.bottom <= sel.bottom + 2;
     // block elements are wider than their text, so also accept an element whose content fits
@@ -88,11 +111,12 @@ export function watchPage(host: HTMLElement, p: Picker) {
   return { pageEl };
 }
 
-// Annotate mode: crosshair, no scrolling or text selection on the page.
+// Annotate mode: crosshair, no text selection or long-press menu; touch still scrolls and zooms.
 export function setPickMode(on: boolean) {
   const ds = document.documentElement.style;
   ds.cursor = on ? 'crosshair' : '';
-  ds.touchAction = on ? 'none' : '';
+  ds.touchAction = on ? 'pan-x pan-y pinch-zoom' : '';
+  ds.setProperty('-webkit-touch-callout', on ? 'none' : '');
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- older iOS Safari only knows the prefixed one
   ds.userSelect = ds.webkitUserSelect = on ? 'none' : '';
   if (on) getSelection()?.removeAllRanges();
