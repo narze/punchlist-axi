@@ -58,7 +58,7 @@ const go = (text: string) => {
 };
 const recents = () => [...R.querySelectorAll('.url .recent button')].map(b => b.textContent);
 
-assert.equal(q('.tools button').dataset['act'], 'url', 'the URL button comes first in the pill');
+assert.deepEqual([...R.querySelectorAll<HTMLElement>('.tools button')].map(b => b.dataset['act']).slice(-2), ['url', 'send'], 'the URL button sits just before Send');
 q('[data-act="url"]').click(); await sleep(0);
 assert.ok(shown('.url'), 'the URL sheet opens');
 assert.equal(input().value, '/events/1?tab=2#seats', 'pre-filled with the current path, query and hash');
