@@ -1,5 +1,5 @@
-// The edit: which stretches of raw.mp4 play, how fast, and where the frame freezes. The intro and the agent scene
-// freeze the page while Claude Code plays; typing and waiting run fast.
+// The edit: which stretches of raw.mp4 play, how fast, and where the frame freezes. The problem, the intro and the
+// agent scene freeze the page (hidden or aside) while they play; typing and waiting run fast.
 import { END, ev } from './timeline';
 
 export const FPS = 30;
@@ -9,8 +9,11 @@ let at = 0;
 const play = (from: number, to: number, rate = 1) => { segs.push({ start: at, len: (to - from) / rate, raw: from, rate, freeze: false }); at += (to - from) / rate; };
 const hold = (raw: number, len: number) => { segs.push({ start: at, len, raw, rate: 1, freeze: true }); at += len; };
 
+// the problem: describing a UI fix in words
+export const PROBLEM = { start: 0, len: 6.4 };
+hold(0.4, PROBLEM.len);
 // Claude Code: /punchlist, the proxy starts, the link
-export const INTRO = { start: 0, len: 5.9 };
+export const INTRO = { start: PROBLEM.len, len: 5.9, end: PROBLEM.len + 5.9 };
 hold(0.4, INTRO.len);
 // "runs along your web app", then the punch list
 export const ALONG = { start: at, len: 1.7 };

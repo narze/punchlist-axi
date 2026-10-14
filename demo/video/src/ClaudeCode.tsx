@@ -1,7 +1,7 @@
 // Claude Code in a terminal, drawn row by row on a monospace grid (so a row's position is known, for the pointer).
 // The transcript: `/punchlist` starts the proxy and shares the link (intro), then `wait` returns the notes (taken
 // from the real output) and the agent edits (made-up diffs) and reports with `done` (agent scene).
-import { AGENT } from './cut';
+import { AGENT, INTRO } from './cut';
 import { link, received } from './timeline';
 import { FUN, INK, MONO } from './style';
 
@@ -24,9 +24,10 @@ const W = 52;
 const welcome: Row[] = ['', '✻ Welcome to Claude Code!', '', '  /help for help, /status for your current setup', '', '  cwd: /home/you/roastery', '']
   .map((s, i, all) => ({ ...row(0, txt(` ${s}`, s.startsWith('✻') ? { bold: true } : { color: DIM })), box: i === 0 ? 'top' : i === all.length - 1 ? 'bottom' : 'mid' }));
 
-export const PROMPT = { text: '/punchlist 5199', from: 0.75, to: 1.55, submit: 1.85 };
-const A = AGENT.start;
-export const LINK_AT = 3.75;
+// intro times count from the scene's start
+const I = INTRO.start, A = AGENT.start;
+export const PROMPT = { text: '/punchlist 5199', from: I + 0.75, to: I + 1.55, submit: I + 1.85 };
+export const LINK_AT = I + 3.75;
 const waiting = (at: number, until: number): Row => ({ at, until, spans: [txt(' Waiting for your notes… ', { color: ORANGE }), txt('(esc to interrupt)', { color: DIM })], spinner: ORANGE });
 
 export const transcript: Row[] = [
@@ -34,14 +35,14 @@ export const transcript: Row[] = [
   row(0, txt('')),
   row(PROMPT.submit, txt(`> ${PROMPT.text}`, { color: DIM })),
   row(PROMPT.submit, txt('')),
-  said(2.2, 'I’ll put punchlist in front of your dev server on :5199.'),
-  tool(2.6, 'Bash', 'npx -y punchlist-axi start --target 5199'),
-  result(3.0, 'proxy: started on port 4000'),
-  more(3.1, `local: ${link.slice(0, 44)}…`),
-  said(3.55, 'Open this link, press Annotate, click what should change, then Send:'),
+  said(I + 2.2, 'I’ll put punchlist in front of your dev server on :5199.'),
+  tool(I + 2.6, 'Bash', 'npx -y punchlist-axi start --target 5199'),
+  result(I + 3.0, 'proxy: started on port 4000'),
+  more(I + 3.1, `local: ${link.slice(0, 44)}…`),
+  said(I + 3.55, 'Open this link, press Annotate, click what should change, then Send:'),
   { ...row(LINK_AT, txt('  '), txt(link, { color: BLUE, underline: true })), link: true },
-  tool(4.15, 'Bash', 'npx -y punchlist-axi wait'),
-  waiting(4.3, A + 0.4),
+  tool(I + 4.15, 'Bash', 'npx -y punchlist-axi wait'),
+  waiting(I + 4.3, A + 0.4),
   // the agent scene
   result(A + 0.4, `request r1 · ${received.length} notes`, { color: '#c4b5fd' }),
   ...received.flatMap((n, i) => [
