@@ -25,6 +25,17 @@ const STYLE_PROPS = ['display', 'position', 'width', 'height', 'margin', 'paddin
   'line-height', 'border', 'border-radius', 'box-shadow', 'opacity'];
 
 export const here = () => location.pathname + location.search;
+// What the URL sheet goes to: a path on this proxy. A pasted URL keeps only its path, query and hash, whatever
+// its origin (the dev server, the tailnet name, production); other schemes throw. Empty input: null.
+export function toPath(input: string): string | null {
+  let s = input.trim();
+  if (!s) return null;
+  if (/^[\w.-]+:\d+(?:[/?#]|$)/.test(s)) s = 'http://' + s; // localhost:3000/x
+  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(s)?.[1]?.toLowerCase();
+  if (scheme && scheme !== 'http' && scheme !== 'https') throw new Error('Only http(s) URLs or paths');
+  const u = new URL(scheme ? s : s.replace(/^\/*/, '/'), 'http://x');
+  return u.pathname + u.search + u.hash;
+}
 export const areaRect = (a: Rect): Box => ({ left: a.x - scrollX, top: a.y - scrollY, width: a.width, height: a.height });
 
 export function label(el: Element) {

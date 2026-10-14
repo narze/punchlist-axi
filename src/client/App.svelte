@@ -1,18 +1,19 @@
-<!-- The picker: page gestures in, toolbar + note panel + tray + overlay out. State lives here; children only render. -->
+<!-- The picker: page gestures in, toolbar + note panel + tray + URL sheet + overlay out. State lives here; children only render. -->
 <script lang="ts">
   import { flushSync, onMount } from 'svelte';
   import type { FileRef, Note, OpenRequest, OpenResult, Payload, PublicItem, SourceFile } from '../protocol.ts';
   import { API, ApiError, errorMessage, get, listen, post } from './api.ts';
   import type * as EditorModule from './editor.ts';
-  import { bestHint, describe, elementContext, fileHint, markdown, here, type Box, type Draft, type LiveNote, type Target, type Toast } from './context.ts';
+  import { bestHint, describe, elementContext, fileHint, markdown, here, toPath, type Box, type Draft, type LiveNote, type Target, type Toast } from './context.ts';
   import { freezePage, setPickMode, watchPage } from './page.ts';
-  import { autoReload, editorBox, restore, save, setEditorBox, withoutEls } from './storage.ts';
+  import { autoReload, editorBox, restore, save, setEditorBox, visit, withoutEls } from './storage.ts';
   import EditorPanel from './EditorPanel.svelte';
   import NotePanel from './NotePanel.svelte';
   import Overlay from './Overlay.svelte';
   import Toasts from './Toasts.svelte';
   import Toolbar from './Toolbar.svelte';
   import Tray from './Tray.svelte';
+  import UrlSheet from './UrlSheet.svelte';
 
   const { host }: { host: HTMLElement } = $props();
 
@@ -27,6 +28,8 @@
   let toasts = $state.raw<Toast[]>([]);
   let busy = $state(0);
   let box = $state.raw(editorBox()); // where the editor was moved and sized
+  let urlOpen = $state(false), url = $state(''), urlError = $state(''), urlField = $state<HTMLInputElement>();
+  let recent = $state.raw<string[]>([]);
   // the open file: `src` once loaded; `conflict` is the etag on disk after a refused save; `discarding` = Close was pressed once with changes
   interface OpenFile { ref: FileRef; src: SourceFile | null; dirty: boolean; saving: boolean; conflict: string | null; discarding: boolean }
   let file = $state.raw<OpenFile | null>(null);
@@ -69,7 +72,7 @@
     openDraft({ ...t, desc: describe(snap), hint: bestHint(first.hints) || first.selector, file: fileHint(first.hints), top: (r.top + r.bottom) / 2 > innerHeight / 2 });
   }
   function openDraft(d: Draft) {
-    hover = null; trayOpen = false;
+    hover = null; trayOpen = false; urlOpen = false;
     draft = d;
     // focus inside the gesture: early keys aren't lost and iOS opens the keyboard
     flushSync();
@@ -90,7 +93,7 @@
     const launch = onProxyHost();
     try {
       const b = await post<Partial<OpenResult>>('/open', { ...file, launch } satisfies OpenRequest);
-      if (!launch && b.url) { const a = document.createElement('a'); a.href = b.url; a.click(); }
+      if (!launch && b.url) follow(b.url);
       toast(`↗ ${launch ? 'Opened' : 'Opening'} ${b.file ?? file.file} in your editor`, { ms: 2500 });
     } catch (e) { toast(`❌ Open failed: ${errorMessage(e)}`); }
   }
@@ -205,6 +208,34 @@
     startDraft(t);
   }
 
+  // ---------------------------------------------------------------- URL sheet
+  // a detached link, not location.assign: the same full load, and the app's router (Turbo) never sees the click
+  function follow(href: string) { const a = document.createElement('a'); a.href = href; a.click(); }
+  function toggleUrl() {
+    if (urlOpen) { closeUrl(); return; }
+    trayOpen = false;
+    url = location.pathname + location.search + location.hash; urlError = '';
+    urlOpen = true;
+    flushSync();
+    urlField?.focus({ preventScroll: true });
+    urlField?.select();
+  }
+  // back to the note being written, if any
+  function closeUrl() {
+    urlOpen = false;
+    flushSync();
+    field?.focus({ preventScroll: true });
+  }
+  // a full load drops the note being written (saved notes stay in sessionStorage)
+  const mayLeave = () => !comment.trim() || confirm('Leave this page? The note you are writing will be lost.');
+  function go(input: string) {
+    let path: string | null;
+    urlError = '';
+    try { path = toPath(input); } catch (e) { urlError = errorMessage(e); return; }
+    if (path === null || !mayLeave()) return;
+    follow(path);
+  }
+
   // ---------------------------------------------------------------- tray + send
   async function copy() {
     try { await navigator.clipboard.writeText(markdown(notes)); toast('📋 Copied', { ms: 2000 }); }
@@ -247,8 +278,10 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.altKey && e.shiftKey && e.code === 'KeyE') { e.preventDefault(); cancelDraft(); setPicking(!picking); }
+    else if (e.altKey && e.shiftKey && e.code === 'KeyL') { e.preventDefault(); toggleUrl(); }
     else if (e.altKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); setFrozen(!frozen); }
     else if (e.key === 'Escape' && file) { /* the editor has its own Escape uses (search, completion); Close is a button */ }
+    else if (e.key === 'Escape' && urlOpen) closeUrl();
     else if (e.key === 'Escape' && (picking || draft || trayOpen)) {
       if (draft) cancelDraft(); else if (picking) setPicking(false); else trayOpen = false;
     }
@@ -278,7 +311,7 @@
       vv.addEventListener('resize', fit);
       vv.addEventListener('scroll', fit);
     }
-    const init = () => { notes = restore(); };
+    const init = () => { notes = restore(); recent = visit(here()); };
     init();
     document.addEventListener('turbo:load', init);
     addEventListener('popstate', () => { setTimeout(init, 0); });
@@ -295,7 +328,7 @@
   <button class="chip" type="button" style:left="{chip.left}px" style:top="{chip.top}px"
     onpointerdown={e => { e.preventDefault(); }} onclick={pickSelection}>💬 Annotate</button>
 {/if}
-{#if draft}
+{#if draft && !urlOpen}
   <NotePanel {draft} bind:comment bind:field onadd={addNote} oncancel={cancelDraft} onopen={() => { if (draft?.file) void openFile(draft.file); }}
     oncopy={() => { if (draft?.file) copyFile(draft.file); }} onedit={() => { if (draft?.file) void openEditor(draft.file); else void locate(true); }}
     onlocate={() => { void locate(false); }} onparent={parent} onchild={child} />
@@ -311,10 +344,16 @@
   <Tray {notes} onremove={i => { setNotes(notes.filter((_, j) => j !== i)); }} oncopy={copy} onclear={() => { setNotes([]); }} onsend={send}
     onpage={() => { startDraft({ kind: 'page', els: [] }); }} />
 {/if}
-<Toolbar {picking} {frozen} count={notes.length} {busy}
+{#if urlOpen}
+  <UrlSheet bind:value={url} bind:field={urlField} error={urlError} {recent} ongo={go}
+    onback={() => { if (mayLeave()) history.back(); }} onforward={() => { if (mayLeave()) history.forward(); }}
+    onreload={() => { if (mayLeave()) location.reload(); }} />
+{/if}
+<Toolbar {picking} {frozen} browsing={urlOpen} count={notes.length} {busy}
+  onurl={toggleUrl}
   onpick={() => { cancelDraft(); setPicking(!picking); }}
   onfreeze={() => { setFrozen(!frozen); }}
-  ontray={() => { cancelDraft(); trayOpen = !trayOpen; }}
+  ontray={() => { cancelDraft(); urlOpen = false; trayOpen = !trayOpen; }}
   onsend={send} />
 
 <style>

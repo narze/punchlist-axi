@@ -1,13 +1,16 @@
-<!-- The pill in the corner: annotate, pause animations, notes tray, send. -->
+<!-- The pill in the corner: go to a page, annotate, pause animations, notes tray, send. -->
 <script lang="ts">
-  const { picking, frozen, count, busy, onpick, onfreeze, ontray, onsend }: {
-    picking: boolean; frozen: boolean; count: number; busy: number;
-    onpick: () => void; onfreeze: () => void; ontray: () => void; onsend: () => void;
+  const { picking, frozen, browsing, count, busy, onurl, onpick, onfreeze, ontray, onsend }: {
+    picking: boolean; frozen: boolean; browsing: boolean; count: number; busy: number;
+    onurl: () => void; onpick: () => void; onfreeze: () => void; ontray: () => void; onsend: () => void;
   } = $props();
 </script>
 
-<!-- Lucide icons (ISC, lucide.dev): mouse-pointer-click, pause, list, send. SVG, not emoji, so every device draws them alike -->
+<!-- Lucide icons (ISC, lucide.dev): globe, mouse-pointer-click, pause, list, send. SVG, not emoji, so every device draws them alike -->
 <div class="tools">
+  <button data-act="url" aria-pressed={browsing} title="Go to a page (Alt+Shift+L)" aria-label="Go to a page" onclick={onurl}>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
+  </button>
   <button data-act="pick" aria-pressed={picking} title="Annotate (Alt+Shift+E)" aria-label="Annotate" onclick={onpick}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.1 12 6" /><path d="m5.1 8-2.9-.8" /><path d="m6 12-1.9 2" /><path d="M7.2 2.2 8 5.1" /><path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" /></svg>
   </button>
