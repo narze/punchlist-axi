@@ -17,33 +17,33 @@ const CC_INTRO: Box = { x: 210, y: 110, w: 1500, h: 860, font: 25 };
 const CC_AGENT: Box = { x: 1000, y: 195, w: 860, h: 700, font: 18 };
 
 // the intro's camera on Crab Code: the prompt as it is typed, then the link before the pointer opens it
-const I = INTRO.start, POINT = { from: I + 4.25, to: I + 4.8, click: I + 4.85 };
+const I = INTRO.start, POINT = { from: I + 4.0, to: I + 4.55, click: I + 4.6 };
 // the agent scene's camera: in on the notes Crab Code receives, then on its diffs, then out for the browser
 const A = AGENT.start;
-const agentKeys = [key(A + 0.45, 1.3, { x: 1430, y: 640 }, 0.8), key(A + 1.6, 1.3, { x: 1430, y: 720 }, 0.8), key(A + 4.4, 1, HOME, 0.7)];
+const agentKeys = [key(A + 0.45, 1.3, { x: 1430, y: 640 }, 0.8), key(A + 1.35, 1.3, { x: 1430, y: 720 }, 0.8), key(A + 3.9, 1, HOME, 0.7)];
 const link = linkPos(CC_INTRO, POINT.click);
 const introKeys = [key(I, 1), key(I + 0.5, 1.3, { x: 960, y: 880 }, 0.6), key(PROMPT.submit + 0.05, 1, HOME, 0.5), key(LINK_AT - 0.1, 1.3, link, 0.6)];
 
 interface Note { from: number; to: number; x: number; y: number; text: ReactNode; bg: string; rot?: number; size?: number; step?: number }
 const stickers: Note[] = [
   { from: I + 0.35, to: I + 2.4, x: 960, y: 62, step: 1, bg: YELLOW, text: 'Use the /punchlist skill' },
-  { from: I + 3.95, to: INTRO.end - 0.15, x: 960, y: 62, step: 2, bg: PINK, text: 'Open the link it shares' },
+  { from: I + 3.7, to: INTRO.end - 0.15, x: 960, y: 62, step: 2, bg: PINK, text: 'Open the link it shares' },
   { from: ALONG.start - 0.05, to: ALONG.start + 1.45, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
-  { from: ALONG.start + 0.35, to: ALONG.start + 1.45, x: 960, y: 1030, rot: 2, size: 30, bg: SKY, text: 'no changes to your app · any framework' },
-  { from: ALONG.start + 1.5, to: ALONG.start + ALONG.len + 0.2, x: 860, y: 58, rot: 2, size: 54, bg: PINK, text: '📱 Open it on your phone too, via Tailscale' },
+  { from: ALONG.start + 0.3, to: ALONG.start + 1.75, x: 960, y: 1030, rot: 2, size: 34, bg: SKY, text: 'zero app changes' },
+  { from: ALONG.start + 1.5, to: ALONG.start + ALONG.len + 0.2, x: 860, y: 58, rot: 2, size: 54, bg: PINK, text: '📱 On your phone too, via Tailscale' },
   { from: s(ev.pick.t) - 0.5, to: s(ev.cta.t) - 0.75, x: 960, y: 380, step: 3, bg: YELLOW, text: 'Turn on Annotate' },
   { from: s(ev.cta.t) - 0.6, to: s(ev.typing[0]!.t) + 0.1, x: 1460, y: 540, rot: 2, step: 4, bg: PINK, text: 'Click anything' },
   { from: s(ev.typing[0]!.t) + 0.1, to: s(ev.add[0]!.t) + 0.3, x: 940, y: 170, rot: -2, step: 5, bg: MINT, text: 'Say what should change' },
   { from: s(ev.drag.t) - 0.4, to: s(ev.add[1]!.t) + 0.2, x: 940, y: 960, rot: -3, step: 6, bg: LILAC, text: '…or drag a box' },
   { from: s(ev.send.t) - 0.7, to: AGENT.start + 0.3, x: 960, y: 190, rot: 2, step: 7, bg: YELLOW, text: 'Send it to your agent' },
-  { from: AGENT.start + 0.8, to: AGENT.start + 3.3, x: 960, y: 1010, rot: -2, size: 42, bg: MINT, text: '🤖 it gets every note + the source file' },
-  { from: AGENT.start + 3.3, to: AGENT.start + AGENT.len - 0.4, x: 960, y: 1010, rot: 2, size: 42, bg: PINK, text: '✍️ …edits the code, reports back' },
+  { from: AGENT.start + 0.5, to: AGENT.start + 2.4, x: 960, y: 1010, rot: -2, size: 42, bg: MINT, text: '🤖 it gets every note + the source file' },
+  { from: AGENT.start + 2.4, to: AGENT.start + AGENT.len - 0.4, x: 960, y: 1010, rot: 2, size: 42, bg: PINK, text: '✍️ …edits the code, reports back' },
   { from: RESULT.start + 0.2, to: RESULT.start + 1.5, x: 1100, y: 1010, rot: -4, size: 56, bg: YELLOW, text: '✨ Fixed! ✨' },
   { from: EDIT.start + 0.15, to: EDIT.start + 1.35, x: 960, y: 160, rot: -3, size: 60, bg: PINK, text: 'Wait… “coffe”? 👀' },
   { from: EDIT.start + 1.35, to: s(ev.h1.t) - 0.2, x: 560, y: 80, rot: 3, bg: LILAC, text: 'Fix it yourself, right in the page ✎' },
-  { from: s(ev.editor.t) + 0.1, to: s(ev.word.t) - 0.4, x: 960, y: 985, rot: -2, size: 40, bg: SKY, text: 'a real code editor, on the real file' },
+  { from: s(ev.editor.t) + 0.1, to: s(ev.word.t) - 0.4, x: 960, y: 985, rot: -2, size: 40, bg: SKY, text: 'a real editor, real file' },
   { from: s(ev.editTyping.t) - 0.2, to: s(ev.save.t) - 0.1, x: 960, y: 960, rot: 2, bg: MINT, text: 'coffe → coffee' },
-  { from: s(ev.save.t) - 0.15, to: SAVED.start + 0.1, x: 960, y: 960, rot: -2, bg: YELLOW, text: '⌘S saves it to disk' },
+  { from: s(ev.save.t) - 0.15, to: SAVED.start + 1.0, x: 700, y: 960, rot: -2, bg: YELLOW, text: '⌘S saves it to disk' },
   { from: s(ev.edited.t) + 0.15, to: OUTRO.start + 0.2, x: 1560, y: 985, rot: -4, size: 64, bg: PINK, text: '✨ Typo gone ✨' },
 ];
 
@@ -148,7 +148,7 @@ export function Demo() {
       {stickers.map(n => <Sticker key={n.from} {...n}>{n.text}</Sticker>)}
       {/* a quick flash over the jump from the editor to the reloaded page */}
       <AbsoluteFill style={{ background: '#fff', opacity: Math.max(0, 1 - Math.abs(t - SAVED.start) / 0.12) * 0.85, pointerEvents: 'none' }} />
-      <Confetti from={RESULT.start + 1.9} />
+      <Confetti from={RESULT.start + 1.7} />
       <Confetti from={s(ev.edited.t)} />
       <Outro from={OUTRO.start + 0.25} />
       <Sounds cues={cues} />

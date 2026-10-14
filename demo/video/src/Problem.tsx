@@ -6,11 +6,11 @@ import { Sticker } from './parts';
 import type { Cue } from './Sounds';
 import { FUN, hard, INK, MINT, PURPLE, YELLOW } from './style';
 
-const P = PROBLEM.start, OFF = P + 3.75;
+const P = PROBLEM.start, OFF = P + 3.45;
 const chat = [
   { at: P + 0.45, me: true, text: 'make the button bigger' },
   { at: P + 1.05, me: false, text: 'Which button? I see 14 🤔' },
-  { at: P + 1.75, me: true, text: 'the gray one, in the hero, under the title' },
+  { at: P + 1.75, me: true, text: 'the gray one, under the title' },
   { at: P + 2.45, me: false, text: 'Which template renders that?' },
   { at: P + 3.0, me: true, text: '😩', big: true },
 ];

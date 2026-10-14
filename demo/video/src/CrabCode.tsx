@@ -26,8 +26,8 @@ const welcome: Row[] = ['', '🦀 Welcome to Crab Code!', '', '  /help for help,
 
 // intro times count from the scene's start
 const I = INTRO.start, A = AGENT.start;
-export const PROMPT = { text: '/punchlist', from: I + 0.75, to: I + 1.55, submit: I + 1.85 };
-export const LINK_AT = I + 3.75;
+export const PROMPT = { text: '/punchlist', from: I + 0.5, to: I + 1.25, submit: I + 1.6 };
+export const LINK_AT = I + 3.5;
 const waiting = (at: number, until: number): Row => ({ at, until, spans: [txt(' Waiting for your notes… ', { color: ORANGE }), txt('(esc to interrupt)', { color: DIM })], spinner: ORANGE });
 
 export const transcript: Row[] = [
@@ -35,35 +35,35 @@ export const transcript: Row[] = [
   row(0, txt('')),
   row(PROMPT.submit, txt(`> ${PROMPT.text}`, { color: DIM })),
   row(PROMPT.submit, txt('')),
-  said(I + 2.2, 'Your dev server is on :5199. I’ll put punchlist in front of it, on :4000.'),
-  tool(I + 2.6, 'Bash', 'npx -y punchlist-axi start --target 5199'),
-  result(I + 3.0, 'proxy: started on port 4000'),
-  more(I + 3.15, 'tailscale: http://devbox.your-tailnet.ts.net:4000  (opens on your phone)'),
-  said(I + 3.55, 'Open this link, press Annotate, click what should change, then Send:'),
+  said(I + 1.95, 'Your dev server is on :5199. I’ll put punchlist in front of it, on :4000.'),
+  tool(I + 2.35, 'Bash', 'npx -y punchlist-axi start --target 5199'),
+  result(I + 2.75, 'proxy: started on port 4000'),
+  more(I + 2.9, 'tailscale: http://devbox.tailnet.ts.net:4000'),
+  said(I + 3.3, 'Open this link, press Annotate, click what should change, then Send:'),
   { ...row(LINK_AT, txt('  '), txt(link, { color: BLUE, underline: true })), link: true },
-  tool(I + 4.15, 'Bash', 'npx -y punchlist-axi wait'),
-  waiting(I + 4.3, A + 0.4),
+  tool(I + 3.9, 'Bash', 'npx -y punchlist-axi wait'),
+  waiting(I + 4.05, A + 0.35),
   // the agent scene
-  result(A + 0.4, `request r1 · ${received.length} notes`, { color: '#c4b5fd' }),
+  result(A + 0.35, `request r1 · ${received.length} notes`, { color: '#c4b5fd' }),
   ...received.flatMap((n, i) => [
-    more(A + 0.6 + i * 0.25, `${i + 1} ${n.label}  “${n.comment}”`, { color: '#fde68a' }),
-    more(A + 0.7 + i * 0.25, `  ↳ ${n.file}`),
+    more(A + 0.5 + i * 0.2, `${i + 1} ${n.label}  “${n.comment}”`, { color: '#fde68a' }),
+    more(A + 0.6 + i * 0.2, `  ↳ ${n.file}`),
   ]),
-  tool(A + 1.5, 'Update', 'app/views/home/_hero.html.erb'),
-  result(A + 1.7, 'Updated with 1 addition and 1 removal'),
-  diff(A + 1.85, 5, '-', '.cta { … background: #e7e5e4; … padding: 6px 12px; …'),
-  diff(A + 1.95, 5, '+', '.cta { … background: #b45309; … padding: 14px 28px; …'),
-  tool(A + 2.5, 'Update', 'app/views/home/_plans.html.erb'),
-  result(A + 2.7, 'Updated with 2 additions and 2 removals'),
-  diff(A + 2.85, 4, '-', '.grid { … gap: 4px; }'),
-  diff(A + 2.95, 4, '+', '.grid { … gap: 24px; }'),
-  diff(A + 3.05, 5, '-', '.card { … border-radius: 4px; padding: 12px; }'),
-  diff(A + 3.15, 5, '+', '.card { … border-radius: 16px; padding: 24px; }'),
-  tool(A + 3.8, 'Bash', 'npx -y punchlist-axi done r1 "1: brand button  2: roomier cards"'),
-  result(A + 4.2, 'request r1 · status: done'),
-  said(A + 4.7, 'Both fixed. Press Reload in the page to see them.'),
-  tool(A + 5.3, 'Bash', 'npx -y punchlist-axi wait'),
-  waiting(A + 5.45, Infinity),
+  tool(A + 1.3, 'Update', 'app/views/home/_hero.html.erb'),
+  result(A + 1.45, 'Updated with 1 addition and 1 removal'),
+  diff(A + 1.55, 5, '-', '.cta { … background: #e7e5e4; … padding: 6px 12px; …'),
+  diff(A + 1.65, 5, '+', '.cta { … background: #b45309; … padding: 14px 28px; …'),
+  tool(A + 2.0, 'Update', 'app/views/home/_plans.html.erb'),
+  result(A + 2.15, 'Updated with 2 additions and 2 removals'),
+  diff(A + 2.25, 4, '-', '.grid { … gap: 4px; }'),
+  diff(A + 2.35, 4, '+', '.grid { … gap: 24px; }'),
+  diff(A + 2.45, 5, '-', '.card { … border-radius: 4px; padding: 12px; }'),
+  diff(A + 2.55, 5, '+', '.card { … border-radius: 16px; padding: 24px; }'),
+  tool(A + 3.0, 'Bash', 'npx -y punchlist-axi done r1 "1: brand button  2: roomier cards"'),
+  result(A + 3.3, 'request r1 · status: done'),
+  said(A + 3.5, 'Both fixed. The page reloads itself to show them.'),
+  tool(A + 3.9, 'Bash', 'npx -y punchlist-axi wait'),
+  waiting(A + 4.0, Infinity),
 ];
 
 export interface Box { x: number; y: number; w: number; h: number; font: number }

@@ -39,8 +39,8 @@ const keys: Key[] = [
   key(AGENT.start, 1, HOME, 0.5),
   // the whole fixed page first (the "before" shows beside it), then the button and the cards
   key(RESULT.start + 0.1, 1, HOME, 0.5),
-  key(RESULT.start + 1.9, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
-  key(RESULT.start + 3.0, 1.25, mid(ev.drag.rect), 0.7),
+  key(RESULT.start + 1.7, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
+  key(RESULT.start + 2.5, 1.25, mid(ev.drag.rect), 0.7),
   // "wait, coffe?": the typo before the user fixes it
   key(EDIT.start, 2.4, mid(ev.typo.rect), 0.6),
   key(s(ev.editPick.t) - 0.7, 2.1, mid(ev.editPick.rect)),
