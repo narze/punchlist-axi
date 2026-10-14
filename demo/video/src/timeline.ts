@@ -14,7 +14,7 @@ function one(kind: string, text = '', nth = 0): Mark & { rect: Rect } {
 
 const n = [0, 1];
 export const ev = {
-  // the punch list: a clicked note, a dragged box, Send, the agent's fix, Reload
+  // the punch list: a clicked note, a dragged box, Send, the agent's fix (the page reloads itself)
   pick: one('click', 'data-act="pick"'),
   cta: one('click', '.cta'),
   typing: n.map(i => one('typing', '', i)),
@@ -24,7 +24,6 @@ export const ev = {
   dragged: one('dragged'),
   send: one('click', 'data-act="send"'),
   done: one('scene', 'done'),
-  reload: one('click', 'Reload'),
   result: one('scene', 'result'),
   // the user's own fix in the page's editor
   edit: one('scene', 'edit'),
@@ -37,8 +36,6 @@ export const ev = {
   editTyping: one('typing', '', 2),
   editTyped: one('typed', '', 2),
   save: one('scene', 'save'),
-  close: one('click', '.close'),
-  reload2: one('click', 'Reload', 1),
   edited: one('scene', 'edited'),
 };
 // capture.ts holds the last page for 2.5 s

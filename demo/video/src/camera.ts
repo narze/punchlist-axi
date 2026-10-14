@@ -37,7 +37,6 @@ const keys: Key[] = [
   key(s(ev.add[1]!.t) + 0.1, 1, HOME, 0.5),
   key(s(ev.send.t) - 0.8, 2.5, mid(ev.send.rect)),
   key(AGENT.start, 1, HOME, 0.5),
-  key(s(ev.reload.t) - 1.3, 2.1, mid(ev.reload.rect)),
   // the whole fixed page first (the "before" shows beside it), then the button and the cards
   key(RESULT.start + 0.1, 1, HOME, 0.5),
   key(RESULT.start + 1.9, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
@@ -49,16 +48,12 @@ const keys: Key[] = [
   key(s(ev.editBtn.t) - 0.7, 2.3, mid(ev.editBtn.rect)),
   // from the ✎ Edit click, while the editor loads, straight to the word (not the empty space under the code)
   key(s(ev.editBtn.t) - 0.05, 2.5, mid(ev.word.rect), 0.6),
-  // the editor's header: the file name loses its ● and Save greys out
-  key(s(ev.save.t) - 0.1, 1.9, mid({ ...ev.editor.rect, height: 40 }), 0.5),
-  key(s(ev.close.t) - 0.6, 2.2, mid(ev.close.rect)),
-  key(s(ev.reload2.t) - 0.7, 2.1, mid(ev.reload2.rect)),
   key(s(ev.edited.t) + 0.1, 1.7, mid(ev.h1.rect), 0.8),
   key(OUTRO.start - 0.2, 1, HOME, 0.6),
 ];
 
 // a burst and a pop at each click the cut keeps
-export const bursts = [ev.pick, ev.cta, ...ev.add, ev.send, ev.reload, ev.editPick, ev.h1, ev.editBtn, ev.word, ev.close, ev.reload2].flatMap(c => {
+export const bursts = [ev.pick, ev.cta, ...ev.add, ev.send, ev.editPick, ev.h1, ev.editBtn, ev.word].flatMap(c => {
   const t = o(c.t);
   return t === null ? [] : [{ t, ...mid(c.rect) }];
 });

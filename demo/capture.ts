@@ -1,6 +1,6 @@
 // `pnpm demo:capture`: records the raw footage for the demo video. It serves demo/app from a temp copy,
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
-// a clicked note and a dragged box, Send, then a fake agent (string edits on the copy) answers with `done`;
+// a clicked note and a dragged box, Send, then a fake agent (string edits on the copy) answers with `done` and the page reloads itself;
 // last, the user fixes a typo themselves in the page's code editor (✎ Edit, ⌘S, Reload).
 // Writes demo/out/raw.mp4 (1440p, so zoomed-in shots stay sharp, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
 // scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
@@ -128,6 +128,8 @@ const browser = await chromium.launch({ executablePath: process.env['CHROME'] ??
 try {
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE });
   await context.addInitScript(cursor);
+  // the toast's "auto" switch: the page reloads itself when the agent reports done
+  await context.addInitScript(() => { localStorage.setItem('__pe_autoreload', '1'); });
   const page = await context.newPage();
   // the screencast sends a frame only when the page changes; each is held until the next one
   const frames: { t: number; jpeg: Buffer }[] = [];
@@ -177,13 +179,6 @@ try {
   await run(['done', id, summary, '--port', String(PROXY_PORT)]);
 
   mark('scene', 'done');
-  // the queued / working toasts expire on timers; Reload moves up when they go, so wait for it to stand alone
-  await page.waitForFunction(() => {
-    const t = document.querySelector('punchlist-root')?.shadowRoot?.querySelectorAll('.toast');
-    return t?.length === 1 && t[0]?.textContent.includes('Reload');
-  }, null, { timeout: 15000 });
-  await sleep(800);
-  await click(page, 'punchlist-root .toast button >> text=Reload');
   await page.waitForFunction(() => { const b = document.querySelector('.cta'); return b && getComputedStyle(b).backgroundColor === 'rgb(180, 83, 9)'; });
   await page.mouse.move(mx - 1, my); await page.mouse.move(mx, my); // the new page's fake pointer starts where the real one is
   mark('scene', 'result'); await sleep(2500);

@@ -1,4 +1,4 @@
-// The problem, before Claude Code opens: describing a UI fix to an agent in words goes back and forth.
+// The problem, before Crab Code opens: describing a UI fix to an agent in words goes back and forth.
 // Chat bubbles pop in, then shrink away for the answer: just point at it.
 import { spring, useCurrentFrame } from 'remotion';
 import { FPS, PROBLEM } from './cut';
@@ -36,7 +36,7 @@ export function Problem({ t }: { t: number }) {
           <div key={i} style={{ position: 'absolute', top: 250 + i * 128, [c.me ? 'right' : 'left']: 330,
             transform: `translateY(${off * 40}px) rotate(${(c.me ? 1 : -1) * (off * 12 + (1 - pop) * 8)}deg) scale(${pop * (1 - off)})`, opacity: 1 - off,
             transformOrigin: c.me ? '100% 100%' : '0% 100%', display: 'flex', alignItems: 'center', gap: 16, flexDirection: c.me ? 'row-reverse' : 'row' }}>
-            <span style={{ fontFamily: FUN, fontWeight: 700, fontSize: 24, color: INK, opacity: 0.7 }}>{c.me ? 'you' : 'agent'}</span>
+            <span style={{ fontFamily: FUN, fontWeight: 700, fontSize: c.me ? 24 : 44, color: INK, opacity: c.me ? 0.7 : 1 }}>{c.me ? 'you' : '🤖'}</span>
             <div style={{ fontFamily: FUN, fontWeight: 500, fontSize: c.big ? 64 : 40, lineHeight: 1.2, padding: c.big ? '4px 26px' : '16px 30px',
               color: c.me ? '#fff' : INK, background: c.me ? PURPLE : '#fff', border: `5px solid ${INK}`, boxShadow: hard(8),
               borderRadius: c.me ? '28px 28px 6px 28px' : '28px 28px 28px 6px', whiteSpace: 'nowrap' }}>{c.text}</div>

@@ -1,4 +1,4 @@
-// Claude Code in a terminal, drawn row by row on a monospace grid (so a row's position is known, for the pointer).
+// Crab Code, a made-up agent CLI in a terminal, drawn row by row on a monospace grid (so a row's position is known, for the pointer).
 // The transcript: `/punchlist` starts the proxy and shares the link (intro), then `wait` returns the notes (taken
 // from the real output) and the agent edits (made-up diffs) and reports with `done` (agent scene).
 import { AGENT, INTRO } from './cut';
@@ -21,12 +21,12 @@ const diff = (at: number, line: number, sign: '+' | '-', code: string): Row =>
 
 // the welcome box: its rows carry the border
 const W = 52;
-const welcome: Row[] = ['', '✻ Welcome to Claude Code!', '', '  /help for help, /status for your current setup', '', '  cwd: /home/you/roastery', '']
-  .map((s, i, all) => ({ ...row(0, txt(` ${s}`, s.startsWith('✻') ? { bold: true } : { color: DIM })), box: i === 0 ? 'top' : i === all.length - 1 ? 'bottom' : 'mid' }));
+const welcome: Row[] = ['', '🦀 Welcome to Crab Code!', '', '  /help for help, /status for your current setup', '', '  cwd: /home/you/roastery', '']
+  .map((s, i, all) => ({ ...row(0, txt(` ${s}`, s.startsWith('🦀') ? { bold: true } : { color: DIM })), box: i === 0 ? 'top' : i === all.length - 1 ? 'bottom' : 'mid' }));
 
 // intro times count from the scene's start
 const I = INTRO.start, A = AGENT.start;
-export const PROMPT = { text: '/punchlist 5199', from: I + 0.75, to: I + 1.55, submit: I + 1.85 };
+export const PROMPT = { text: '/punchlist', from: I + 0.75, to: I + 1.55, submit: I + 1.85 };
 export const LINK_AT = I + 3.75;
 const waiting = (at: number, until: number): Row => ({ at, until, spans: [txt(' Waiting for your notes… ', { color: ORANGE }), txt('(esc to interrupt)', { color: DIM })], spinner: ORANGE });
 
@@ -35,7 +35,7 @@ export const transcript: Row[] = [
   row(0, txt('')),
   row(PROMPT.submit, txt(`> ${PROMPT.text}`, { color: DIM })),
   row(PROMPT.submit, txt('')),
-  said(I + 2.2, 'I’ll put punchlist (on :4000) in front of your dev server on :5199.'),
+  said(I + 2.2, 'Your dev server is on :5199. I’ll put punchlist in front of it, on :4000.'),
   tool(I + 2.6, 'Bash', 'npx -y punchlist-axi start --target 5199'),
   result(I + 3.0, 'proxy: started on port 4000'),
   said(I + 3.55, 'Open this link, press Annotate, click what should change, then Send:'),
@@ -81,7 +81,7 @@ export function linkPos(b: Box, t: number) {
 
 const SPIN = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
 
-export function ClaudeCode({ t, box, transform, shadow }: { t: number; box: Box; transform: string; shadow: string }) {
+export function CrabCode({ t, box, transform, shadow }: { t: number; box: Box; transform: string; shadow: string }) {
   const g = geometry(box), shown = visible(transcript, t).slice(-g.rows);
   const typed = PROMPT.text.slice(0, Math.max(0, Math.round((t - PROMPT.from) / (PROMPT.to - PROMPT.from) * PROMPT.text.length)));
   const input = t < PROMPT.submit ? typed : '';
@@ -92,7 +92,7 @@ export function ClaudeCode({ t, box, transform, shadow }: { t: number; box: Box;
       background: '#141414', border: `5px solid ${INK}`, borderRadius: 22, boxShadow: shadow, overflow: 'hidden', fontFamily: MONO, fontSize: box.font, color: '#fafafa' }}>
       <div style={{ height: g.bar, display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px', background: '#262626', fontFamily: FUN, fontWeight: 700, fontSize: 20, color: '#d4d4d8' }}>
         {['#f87171', '#facc15', '#4ade80'].map(c => <span key={c} style={{ width: 16, height: 16, borderRadius: '50%', background: c }} />)}
-        <span style={{ marginLeft: 14 }}>claude · ~/roastery</span>
+        <span style={{ marginLeft: 14 }}>crab · ~/roastery</span>
       </div>
       <div style={{ padding: `${g.padY}px ${g.padX}px`, height: g.rows * g.lh + g.padY }}>
         {shown.map((r, i) => (

@@ -101,21 +101,36 @@ export function Cursor({ x, y, scale = 1 }: { x: number; y: number; scale?: numb
   );
 }
 
+// a ticked checkbox: the box pops in, then the tick draws itself
+function Check({ from, size }: { from: number; size: number }) {
+  const f = useCurrentFrame(), { fps } = useVideoConfig();
+  const pop = spring({ frame: f - from * fps, fps, config: bouncy });
+  const tick = interpolate(f, [(from + 0.25) * fps, (from + 0.55) * fps], [0, 1], clamp);
+  return (
+    <div style={{ width: size, height: size, borderRadius: size * 0.22, background: MINT, border: `${size / 22}px solid ${INK}`, boxShadow: hard(size / 15),
+      display: 'grid', placeItems: 'center', transform: `scale(${pop}) rotate(${(1 - pop) * -90 - 4}deg)` }}>
+      <svg width={size * 0.7} height={size * 0.7} viewBox="0 0 24 24">
+        <path d="M4 12.5l5 5L20 6.5" fill="none" stroke={INK} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={26} strokeDashoffset={26 * (1 - tick)} />
+      </svg>
+    </div>
+  );
+}
+
 export function Outro({ from }: { from: number }) {
   const f = useCurrentFrame(), { fps } = useVideoConfig();
   if (f < from * fps) return null;
   const code = spring({ frame: f - (from + 0.55) * fps, fps, config: bouncy });
   return (
     <AbsoluteFill style={{ alignItems: 'center' }}>
-      <div style={{ position: 'absolute', top: 210 }}><Wordmark from={from + 0.1} size={180} /></div>
+      <div style={{ position: 'absolute', top: 210, display: 'flex', alignItems: 'center', gap: 34 }}><Check from={from + 0.35} size={150} /><Wordmark from={from + 0.1} size={180} /></div>
       <div style={{ position: 'absolute', top: 520, transform: `scale(${code}) rotate(${(1 - code) * 10 - 1}deg)`, fontFamily: MONO, fontWeight: 700, fontSize: 50, color: '#fafafa',
         background: INK, border: `5px solid ${INK}`, borderRadius: 20, padding: '20px 36px', boxShadow: `10px 10px 0 ${PURPLE}` }}>
         <span style={{ color: MINT }}>$</span> npx skills add narze/punchlist-axi
       </div>
       <div style={{ position: 'absolute', top: 668, opacity: code, fontFamily: FUN, fontWeight: 700, fontSize: 46, color: INK }}>github.com/narze/punchlist-axi</div>
-      <Sticker from={from + 1.0} to={from + 99} x={400} y={870} rot={-5} bg={MINT}>any agent</Sticker>
-      <Sticker from={from + 1.15} to={from + 99} x={960} y={900} rot={3} bg={SKY}>no changes to your app</Sticker>
-      <Sticker from={from + 1.3} to={from + 99} x={1520} y={870} rot={-3} bg={PINK}>on your phone too</Sticker>
+      <Sticker from={from + 1.0} to={from + 99} x={430} y={870} rot={-5} bg={MINT}>any agent</Sticker>
+      <Sticker from={from + 1.15} to={from + 99} x={960} y={900} rot={3} bg={SKY}>any web app</Sticker>
+      <Sticker from={from + 1.3} to={from + 99} x={1490} y={870} rot={-3} bg={PINK}>works on your phone</Sticker>
     </AbsoluteFill>
   );
 }
