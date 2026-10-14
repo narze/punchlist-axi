@@ -6,7 +6,7 @@ import { ev, type Rect } from './timeline';
 // the browser window on the stage: the 1280x720 viewport drawn at 1440x810 under a 48px title bar
 export const WIN = { x: 240, y: 111, w: 1440, bar: 48, k: 1440 / 1280 };
 export const toStage = (x: number, y: number) => ({ x: WIN.x + x * WIN.k, y: WIN.y + WIN.bar + y * WIN.k });
-const mid = (r: Rect) => toStage(r.x + r.width / 2, r.y + r.height / 2);
+export const mid = (r: Rect) => toStage(r.x + r.width / 2, r.y + r.height / 2);
 
 export interface Key { t: number; z: number; x: number; y: number; d: number }
 export const HOME = { z: 1, x: 960, y: 540 };
@@ -40,15 +40,15 @@ const keys: Key[] = [
   key(s(ev.reload.t) - 1.3, 2.1, mid(ev.reload.rect)),
   // the whole fixed page first (the "before" shows beside it), then the button and the cards
   key(RESULT.start + 0.1, 1, HOME, 0.5),
-  key(RESULT.start + 1.6, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
-  key(RESULT.start + 2.8, 1.25, mid(ev.drag.rect), 0.7),
+  key(RESULT.start + 1.9, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
+  key(RESULT.start + 3.0, 1.25, mid(ev.drag.rect), 0.7),
   // "wait, coffe?": the typo before the user fixes it
-  key(EDIT.start, 1.7, mid(ev.h1.rect), 0.6),
+  key(EDIT.start, 2.4, mid(ev.typo.rect), 0.6),
   key(s(ev.editPick.t) - 0.7, 2.1, mid(ev.editPick.rect)),
   key(s(ev.h1.t) - 0.7, 1.6, mid(ev.h1.rect)),
   key(s(ev.editBtn.t) - 0.7, 2.3, mid(ev.editBtn.rect)),
   // from the ✎ Edit click, while the editor loads, straight to the word (not the empty space under the code)
-  key(s(ev.editBtn.t) + 0.1, 2.5, mid(ev.word.rect), 0.8),
+  key(s(ev.editBtn.t) - 0.05, 2.5, mid(ev.word.rect), 0.6),
   // the editor's header: the file name loses its ● and Save greys out
   key(s(ev.save.t) - 0.1, 1.9, mid({ ...ev.editor.rect, height: 40 }), 0.5),
   key(s(ev.close.t) - 0.6, 2.2, mid(ev.close.rect)),

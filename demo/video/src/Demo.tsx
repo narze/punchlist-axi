@@ -3,14 +3,14 @@
 import type { ReactNode } from 'react';
 import { AbsoluteFill, spring, useCurrentFrame } from 'remotion';
 import { Before, Browser } from './Browser';
-import { bursts, camera, follow, HOME, key } from './camera';
+import { bursts, camera, follow, HOME, key, mid, WIN } from './camera';
 import { ClaudeCode, LINK_AT, linkPos, PROMPT, type Box } from './ClaudeCode';
 import { AGENT, ALONG, EDIT, FPS, INTRO, OUTRO, RESULT, ox } from './cut';
 import { Background, Burst, Confetti, Cursor, Outro, Sticker } from './parts';
 import { Problem, problemCues } from './Problem';
 import { type Cue, Sounds } from './Sounds';
 import { FUN, hard, LILAC, MINT, PINK, PURPLE, SKY, YELLOW } from './style';
-import { ev } from './timeline';
+import { ev, type Rect } from './timeline';
 
 const s = (raw: number) => ox(raw);
 const CC_INTRO: Box = { x: 210, y: 110, w: 1500, h: 860, font: 25 };
@@ -28,23 +28,23 @@ interface Note { from: number; to: number; x: number; y: number; text: ReactNode
 const stickers: Note[] = [
   { from: I + 0.35, to: I + 2.4, x: 960, y: 62, step: 1, bg: YELLOW, text: 'Ask your agent: /punchlist' },
   { from: I + 3.95, to: INTRO.end - 0.15, x: 960, y: 62, step: 2, bg: PINK, text: 'Open the link it shares' },
-  { from: ALONG.start - 0.05, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 880, rot: -3, size: 66, bg: MINT, text: 'Runs along your web app' },
-  { from: ALONG.start + 0.35, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 990, rot: 2, size: 36, bg: SKY, text: 'no changes to your app · any framework' },
+  { from: ALONG.start - 0.05, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
+  { from: ALONG.start + 0.35, to: ALONG.start + ALONG.len + 0.25, x: 960, y: 1030, rot: 2, size: 30, bg: SKY, text: 'no changes to your app · any framework' },
   { from: s(ev.pick.t) - 0.5, to: s(ev.cta.t) - 0.75, x: 960, y: 380, step: 3, bg: YELLOW, text: 'Turn on Annotate' },
-  { from: s(ev.cta.t) - 0.6, to: s(ev.typing[0]!.t) + 0.1, x: 980, y: 900, rot: 2, step: 4, bg: PINK, text: 'Click anything' },
+  { from: s(ev.cta.t) - 0.6, to: s(ev.typing[0]!.t) + 0.1, x: 1460, y: 540, rot: 2, step: 4, bg: PINK, text: 'Click anything' },
   { from: s(ev.typing[0]!.t) + 0.1, to: s(ev.add[0]!.t) + 0.3, x: 940, y: 170, rot: -2, step: 5, bg: MINT, text: 'Say what should change' },
   { from: s(ev.drag.t) - 0.4, to: s(ev.add[1]!.t) + 0.2, x: 940, y: 960, rot: -3, step: 6, bg: LILAC, text: '…or drag a box' },
   { from: s(ev.send.t) - 0.7, to: AGENT.start + 0.3, x: 960, y: 190, rot: 2, step: 7, bg: YELLOW, text: 'Send it to your agent' },
-  { from: AGENT.start + 0.8, to: AGENT.start + 3.3, x: 960, y: 105, rot: -2, size: 42, bg: MINT, text: '🤖 it gets every note + the source file' },
-  { from: AGENT.start + 3.3, to: AGENT.start + AGENT.len - 0.4, x: 960, y: 105, rot: 2, size: 42, bg: PINK, text: '✍️ …edits the code, reports back' },
+  { from: AGENT.start + 0.8, to: AGENT.start + 3.3, x: 960, y: 1010, rot: -2, size: 42, bg: MINT, text: '🤖 it gets every note + the source file' },
+  { from: AGENT.start + 3.3, to: AGENT.start + AGENT.len - 0.4, x: 960, y: 1010, rot: 2, size: 42, bg: PINK, text: '✍️ …edits the code, reports back' },
   { from: s(ev.reload.t) - 1.1, to: RESULT.start + 0.1, x: 900, y: 400, rot: -3, step: 8, bg: SKY, text: 'Reload' },
   { from: RESULT.start + 0.2, to: RESULT.start + 1.5, x: 1100, y: 1010, rot: -4, size: 56, bg: YELLOW, text: '✨ Fixed! ✨' },
-  { from: EDIT.start + 0.15, to: EDIT.start + 1.35, x: 1350, y: 780, rot: -3, size: 60, bg: PINK, text: 'Wait… “coffe”? 👀' },
-  { from: EDIT.start + 1.35, to: s(ev.editBtn.t) + 0.2, x: 960, y: 960, rot: 3, bg: LILAC, text: 'Fix it yourself, right in the page ✎' },
+  { from: EDIT.start + 0.15, to: EDIT.start + 1.35, x: 960, y: 160, rot: -3, size: 60, bg: PINK, text: 'Wait… “coffe”? 👀' },
+  { from: EDIT.start + 1.35, to: s(ev.h1.t) - 0.2, x: 560, y: 80, rot: 3, bg: LILAC, text: 'Fix it yourself, right in the page ✎' },
   { from: s(ev.editor.t) + 0.1, to: s(ev.word.t) - 0.4, x: 960, y: 985, rot: -2, size: 40, bg: SKY, text: 'a real code editor, on the real file' },
   { from: s(ev.editTyping.t) - 0.2, to: s(ev.save.t) - 0.1, x: 960, y: 960, rot: 2, bg: MINT, text: 'coffe → coffee' },
   { from: s(ev.save.t) - 0.15, to: s(ev.close.t) - 0.4, x: 960, y: 960, rot: -2, bg: YELLOW, text: '⌘S saves it to disk' },
-  { from: s(ev.edited.t) + 0.15, to: OUTRO.start + 0.2, x: 1380, y: 985, rot: -4, size: 64, bg: PINK, text: '✨ Typo gone ✨' },
+  { from: s(ev.edited.t) + 0.15, to: OUTRO.start + 0.2, x: 1560, y: 985, rot: -4, size: 64, bg: PINK, text: '✨ Typo gone ✨' },
 ];
 
 const ticks = (from: number, to: number, every: number, volume: number): Cue[] =>
@@ -63,9 +63,24 @@ const cues: Cue[] = [
   { t: AGENT.start, sound: 'whoosh', volume: 0.5 },
   { t: AGENT.start + AGENT.len - 0.75, sound: 'whoosh', volume: 0.5 },
   { t: RESULT.start + 0.1, sound: 'chime', volume: 0.55 },
+  { t: EDIT.start + 0.2, sound: 'pop', volume: 0.5 },
   { t: s(ev.edited.t) + 0.05, sound: 'chime', volume: 0.6 },
   { t: OUTRO.start, sound: 'whoosh', volume: 0.6 },
 ];
+
+// a marker ring drawn around a spot on the page (viewport rect), on the stage under the camera
+function Circle({ from, to, rect }: { from: number; to: number; rect: Rect }) {
+  const f = useCurrentFrame(), t = f / FPS;
+  if (t < from || t > to) return null;
+  const c = mid(rect), w = rect.width * WIN.k + 36, h = rect.height * WIN.k + 20, p = Math.min(1, (t - from) / 0.4);
+  const len = Math.PI * (w + h) / 2 * 1.1;
+  return (
+    <svg style={{ position: 'absolute', left: c.x - w / 2 - 10, top: c.y - h / 2 - 10, overflow: 'visible' }} width={w + 20} height={h + 20}>
+      <ellipse cx={w / 2 + 10} cy={h / 2 + 10} rx={w / 2} ry={h / 2} fill="none" stroke="#ec4899" strokeWidth={6} strokeLinecap="round"
+        strokeDasharray={len} strokeDashoffset={len * (1 - p)} transform={`rotate(-4 ${w / 2 + 10} ${h / 2 + 10})`} />
+    </svg>
+  );
+}
 
 export function Demo() {
   const f = useCurrentFrame(), t = f / FPS;
@@ -84,7 +99,7 @@ export function Demo() {
   const side = `translate(${-440 * split}px, ${40 * split}px) scale(${1 - 0.42 * split}) rotate(${-2.5 * split}deg)`;
   const ac = follow(agentKeys, t);
   // the fixed page steps right to make room for the "before" beside it
-  const aside = sp(RESULT.start + 0.05) - sp(RESULT.start + 1.4);
+  const aside = sp(RESULT.start + 0.05) - sp(RESULT.start + 1.7);
 
   return (
     <AbsoluteFill style={{ fontFamily: FUN, overflow: 'hidden' }}>
@@ -98,18 +113,19 @@ export function Demo() {
         </AbsoluteFill>
       )}
       <AbsoluteFill style={{ transformOrigin: '0 0', transform: `translate(960px, 540px) scale(${ac.z}) translate(${-ac.x}px, ${-ac.y}px)` }}>
-      <AbsoluteFill style={{ transform: `${side} translateX(${200 * aside}px) scale(${1 - 0.22 * aside})` }}>
+      <AbsoluteFill style={{ transform: `${side} translateX(${260 * aside}px) scale(${1 - 0.3 * aside})` }}>
         <AbsoluteFill style={{ transformOrigin: '0 0', transform: `translate(960px, 540px) rotate(${cam.tilt}deg) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)` }}>
           {t >= INTRO.end - 0.8 && <Browser transform={win} />}
           {bursts.map(b => <Burst key={b.t} {...b} />)}
+          <Circle from={EDIT.start + 0.2} to={EDIT.start + 1.5} rect={ev.typo.rect} />
         </AbsoluteFill>
       </AbsoluteFill>
       {split > 0.001 && <ClaudeCode t={t} box={CC_AGENT} transform={`translateX(${(1 - split) * 1100}px) rotate(${(1 - split) * 12 + 1.2}deg)`} shadow={`16px 16px 0 ${PINK}`} />}
       </AbsoluteFill>
-      <Before from={RESULT.start + 0.15} to={RESULT.start + 1.45} raw={ev.reload.t - 1.5} />
+      <Before from={RESULT.start + 0.15} to={RESULT.start + 1.75} raw={ev.reload.t - 1.5} />
 
       {stickers.map(n => <Sticker key={n.from} {...n}>{n.text}</Sticker>)}
-      <Confetti from={RESULT.start} />
+      <Confetti from={RESULT.start + 1.9} />
       <Confetti from={s(ev.edited.t)} />
       <Outro from={OUTRO.start + 0.25} />
       <Sounds cues={cues} />

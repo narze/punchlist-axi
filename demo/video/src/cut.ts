@@ -2,7 +2,7 @@
 // agent scene freeze the page (hidden or aside) while they play; typing and waiting run fast.
 import { END, ev } from './timeline';
 
-export const FPS = 30;
+export const FPS = 60;
 export interface Seg { start: number; len: number; raw: number; rate: number; freeze: boolean }
 export const segs: Seg[] = [];
 let at = 0;

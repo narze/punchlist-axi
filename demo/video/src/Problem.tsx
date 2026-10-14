@@ -4,7 +4,7 @@ import { spring, useCurrentFrame } from 'remotion';
 import { FPS, PROBLEM } from './cut';
 import { Sticker } from './parts';
 import type { Cue } from './Sounds';
-import { FUN, hard, INK, PURPLE, YELLOW } from './style';
+import { FUN, hard, INK, MINT, PURPLE, YELLOW } from './style';
 
 const P = PROBLEM.start, OFF = P + 3.75;
 const chat = [
@@ -18,6 +18,7 @@ const chat = [
 export const problemCues: Cue[] = [
   ...chat.map(c => ({ t: c.at, sound: 'pop' as const, volume: 0.45 })),
   { t: OFF, sound: 'whoosh', volume: 0.5 },
+  { t: OFF + 0.5, sound: 'pop', volume: 0.45 },
 ];
 
 export function Problem({ t }: { t: number }) {
@@ -42,7 +43,8 @@ export function Problem({ t }: { t: number }) {
           </div>
         );
       })}
-      <Sticker from={OFF + 0.15} to={PROBLEM.start + PROBLEM.len + 0.1} x={960} y={500} rot={-3} size={96} bg={YELLOW}>Just point at it 👆</Sticker>
+      <Sticker from={OFF + 0.15} to={PROBLEM.start + PROBLEM.len + 0.1} x={960} y={450} rot={-3} size={96} bg={YELLOW}>Just point at it 👆</Sticker>
+      <Sticker from={OFF + 0.5} to={PROBLEM.start + PROBLEM.len + 0.1} x={1010} y={620} rot={2} size={60} bg={MINT}>using ✅ Punchlist</Sticker>
     </>
   );
 }

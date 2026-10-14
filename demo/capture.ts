@@ -15,7 +15,7 @@ import { chromium, type Page } from 'playwright-core';
 import { startApp } from './app/server.ts';
 
 const here = import.meta.dirname, out = path.join(here, 'out'), cli = path.join(here, '../scripts/punchlist-axi.mjs');
-const APP_PORT = 5199, PROXY_PORT = 4123, W = 1280, H = 720, SCALE = 2, FPS = 30;
+const APP_PORT = 5199, PROXY_PORT = 4123, W = 1280, H = 720, SCALE = 2, FPS = 60;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // what the fake agent changes after `wait`: one edit per note, in the order the notes are sent
@@ -28,7 +28,7 @@ const notes = [
 const summary = '1: .cta is now the brand button  2: 24px gaps, roomier cards';
 
 interface Rect { x: number; y: number; width: number; height: number }
-type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged' | 'editor';
+type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged' | 'editor' | 'typo';
 const timeline: { t: number; kind: Kind; text: string; rect?: Rect }[] = [];
 let t0 = 0;
 const mark = (kind: Kind, text: string, rect?: Rect | null) => { timeline.push({ t: (Date.now() - t0) / 1000, kind, text, ...(rect ? { rect } : {}) }); };
@@ -190,6 +190,13 @@ try {
 
   // the user's own fix: ✎ Edit opens the heading's template in the page, double-click "coffe", type, ⌘S, Reload
   mark('scene', 'edit');
+  // where "coffe" sits in the heading, so the video can circle it
+  mark('typo', 'coffe', await page.evaluate(() => {
+    const n = document.querySelector('h1')?.firstChild, i = n?.textContent?.indexOf('coffe') ?? -1;
+    if (!n || i < 0) return null;
+    const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 5);
+    const b = r.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height };
+  }));
   await click(page, 'punchlist-root [data-act="pick"]'); await sleep(400);
   await click(page, 'h1'); await sleep(700);
   await click(page, 'punchlist-root .edit');

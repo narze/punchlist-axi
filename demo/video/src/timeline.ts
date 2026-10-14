@@ -28,6 +28,7 @@ export const ev = {
   result: one('scene', 'result'),
   // the user's own fix in the page's editor
   edit: one('scene', 'edit'),
+  typo: one('typo'),
   editPick: one('click', 'data-act="pick"', 2),
   h1: one('click', 'h1'),
   editBtn: one('click', '.edit'),

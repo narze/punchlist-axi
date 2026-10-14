@@ -35,9 +35,9 @@ export function Before({ from, to, raw }: { from: number; to: number; raw: numbe
   const f = useCurrentFrame();
   const s = spring({ frame: f - from * FPS, fps: FPS, config: { damping: 11, stiffness: 160 } }) * interpolate(f, [to * FPS - 6, to * FPS], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   if (f < from * FPS || s <= 0.001) return null;
-  const w = 400;
+  const w = 640;
   return (
-    <div style={{ position: 'absolute', left: 40, bottom: 330, width: w, transform: `scale(${s}) rotate(-3deg)`, transformOrigin: '0% 100%' }}>
+    <div style={{ position: 'absolute', left: 40, bottom: 360, width: w, transform: `scale(${s}) rotate(-3deg)`, transformOrigin: '0% 100%' }}>
       <div style={{ width: w, height: w * 9 / 16, border: `5px solid ${INK}`, borderRadius: 16, overflow: 'hidden', boxShadow: hard(10), background: '#fff' }}>
         <Sequence from={Math.round(from * FPS)} durationInFrames={Math.round((to - from) * FPS)} layout="none">
           <Freeze frame={0}><OffthreadVideo src={staticFile('raw.mp4')} trimBefore={Math.round(raw * FPS)} muted style={{ width: '100%', height: '100%' }} /></Freeze>
