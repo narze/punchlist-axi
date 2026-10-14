@@ -28,9 +28,11 @@ interface Note { from: number; to: number; x: number; y: number; text: ReactNode
 const stickers: Note[] = [
   { from: I + 0.35, to: I + 2.4, x: 960, y: 62, step: 1, bg: YELLOW, text: 'Use the /punchlist skill' },
   { from: I + 3.7, to: INTRO.end - 0.15, x: 960, y: 62, step: 2, bg: PINK, text: 'Open the link it shares' },
-  { from: ALONG.start - 0.05, to: ALONG.start + 1.45, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
-  { from: ALONG.start + 0.3, to: ALONG.start + 1.75, x: 960, y: 1030, rot: 2, size: 34, bg: SKY, text: 'zero app changes' },
-  { from: ALONG.start + 1.5, to: ALONG.start + ALONG.len + 0.2, x: 860, y: 58, rot: 2, size: 54, bg: PINK, text: '📱 On your phone too, via Tailscale' },
+  { from: ALONG.start - 0.05, to: ALONG.start + 2.6, x: 960, y: 58, rot: -2, size: 60, bg: MINT, text: 'Runs along your web app' },
+  { from: ALONG.start + 0.6, to: ALONG.start + 2.6, x: 1290, y: 670, rot: -3, size: 48, bg: YELLOW, text: 'Punchlist is just these buttons ↘' },
+  { from: ALONG.start + 1.0, to: ALONG.start + 2.6, x: 700, y: 380, rot: 2, size: 48, bg: '#fff', text: 'everything else is your web app' },
+  { from: ALONG.start + 1.3, to: ALONG.start + 2.6, x: 960, y: 1030, rot: 2, size: 34, bg: SKY, text: 'zero app changes' },
+  { from: ALONG.start + 2.8, to: ALONG.start + ALONG.len + 0.2, x: 860, y: 58, rot: 2, size: 54, bg: PINK, text: '📱 On your phone too, via Tailscale' },
   { from: s(ev.pick.t) - 0.5, to: s(ev.cta.t) - 0.75, x: 960, y: 380, step: 3, bg: YELLOW, text: 'Turn on Annotate' },
   { from: s(ev.cta.t) - 0.6, to: s(ev.typing[0]!.t) + 0.1, x: 1460, y: 540, rot: 2, step: 4, bg: PINK, text: 'Click anything' },
   { from: s(ev.typing[0]!.t) + 0.1, to: s(ev.add[0]!.t) + 0.3, x: 940, y: 170, rot: -2, step: 5, bg: MINT, text: 'Say what should change' },
@@ -56,7 +58,8 @@ const cues: Cue[] = [
   { t: PROMPT.submit, sound: 'tick', volume: 0.7 },
   { t: POINT.click, sound: 'pop', volume: 0.7 },
   { t: INTRO.end - 0.7, sound: 'whoosh', volume: 0.6 },
-  { t: ALONG.start + 1.35, sound: 'whoosh', volume: 0.5 },
+  { t: ALONG.start + 2.65, sound: 'whoosh', volume: 0.5 },
+  { t: ALONG.start + 0.4, sound: 'chime', volume: 0.3 },
   ...ev.typing.flatMap((n, i) => ticks(s(n.t), s(ev.typed[i]!.t), 0.07, 0.22)),
   ...ticks(s(ev.editTyping.t), s(ev.editTyped.t), 0.11, 0.35),
   ...bursts.map(b => ({ t: b.t, sound: 'pop' as const, volume: 0.7 })),
@@ -102,6 +105,23 @@ function Phone({ from, to }: { from: number; to: number }) {
   );
 }
 
+// Punchlist's toolbar lit, the rest of the page (the app) dimmed, a ring pulsing around the toolbar; viewport px
+const bar = { x: ev.pick.rect.x - 6, y: ev.pick.rect.y - 6, width: ev.send.rect.x + ev.send.rect.width + 6 - (ev.pick.rect.x - 6), height: ev.pick.rect.height + 12 };
+function Spotlight({ from, to }: { from: number; to: number }) {
+  const f = useCurrentFrame(), t = f / FPS;
+  const a = Math.min(1, Math.max(0, Math.min((t - from) / 0.3, (to - t) / 0.3)));
+  if (a <= 0) return null;
+  const pulse = 1 + 0.12 * Math.abs(Math.sin((t - from) * 4));
+  return (
+    <>
+      <div style={{ position: 'absolute', left: bar.x, top: bar.y, width: bar.width, height: bar.height, borderRadius: 999,
+        boxShadow: `0 0 0 3000px rgba(24, 24, 27, ${0.6 * a})` }} />
+      <div style={{ position: 'absolute', left: bar.x - 8, top: bar.y - 8, width: bar.width + 16, height: bar.height + 16, borderRadius: 999,
+        border: `4px solid ${YELLOW}`, opacity: a, transform: `scale(${pulse})` }} />
+    </>
+  );
+}
+
 export function Demo() {
   const f = useCurrentFrame(), t = f / FPS;
   const cam = camera(t);
@@ -135,7 +155,7 @@ export function Demo() {
       <AbsoluteFill style={{ transformOrigin: '0 0', transform: `translate(960px, 540px) scale(${ac.z}) translate(${-ac.x}px, ${-ac.y}px)` }}>
       <AbsoluteFill style={{ transform: `${side} translateX(${260 * aside}px) scale(${1 - 0.3 * aside})` }}>
         <AbsoluteFill style={{ transformOrigin: '0 0', transform: `translate(960px, 540px) rotate(${cam.tilt}deg) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)` }}>
-          {t >= INTRO.end - 0.8 && <Browser transform={win} />}
+          {t >= INTRO.end - 0.8 && <Browser transform={win}><Spotlight from={ALONG.start + 0.4} to={ALONG.start + 2.6} /></Browser>}
           {bursts.map(b => <Burst key={b.t} {...b} />)}
           <Circle from={EDIT.start + 0.2} to={EDIT.start + 1.5} rect={ev.typo.rect} />
         </AbsoluteFill>
@@ -144,7 +164,7 @@ export function Demo() {
       </AbsoluteFill>
       <Before from={RESULT.start + 0.15} to={RESULT.start + 1.75} raw={ev.done.t - 0.3} />
 
-      <Phone from={ALONG.start + 1.35} to={ALONG.start + ALONG.len + 0.1} />
+      <Phone from={ALONG.start + 2.65} to={ALONG.start + ALONG.len + 0.1} />
       {stickers.map(n => <Sticker key={n.from} {...n}>{n.text}</Sticker>)}
       {/* a quick flash over the jump from the editor to the reloaded page */}
       <AbsoluteFill style={{ background: '#fff', opacity: Math.max(0, 1 - Math.abs(t - SAVED.start) / 0.12) * 0.85, pointerEvents: 'none' }} />

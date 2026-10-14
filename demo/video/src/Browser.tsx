@@ -1,10 +1,12 @@
 // The browser window: raw.mp4 cut into segments (sped up, frozen) under a title bar that names the proxy.
+// `children` draw over the page in viewport px (1280x720), scaled with it.
+import type { ReactNode } from 'react';
 import { Freeze, interpolate, OffthreadVideo, Sequence, spring, staticFile, useCurrentFrame } from 'remotion';
 import { WIN } from './camera';
 import { FPS, segs } from './cut';
 import { FUN, hard, INK, MINT, PINK, PURPLE, YELLOW } from './style';
 
-export function Browser({ transform }: { transform: string }) {
+export function Browser({ transform, children }: { transform: string; children?: ReactNode }) {
   const h = WIN.w * 9 / 16;
   return (
     <div style={{ position: 'absolute', left: WIN.x, top: WIN.y, width: WIN.w, height: WIN.bar + h, transform, transformOrigin: '50% 50%',
@@ -25,6 +27,7 @@ export function Browser({ transform }: { transform: string }) {
             <div style={{ position: 'absolute', inset: 0 }}>{s.freeze ? <Freeze frame={0}>{video}</Freeze> : video}</div>
           </Sequence>;
         })}
+        <div style={{ position: 'absolute', left: 0, top: 0, width: 1280, height: 720, transform: `scale(${WIN.k})`, transformOrigin: '0 0' }}>{children}</div>
       </div>
     </div>
   );

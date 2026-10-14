@@ -17,7 +17,7 @@ hold(0.4, PROBLEM.len);
 export const INTRO = { start: PROBLEM.len, len: 5.6, end: PROBLEM.len + 5.6 };
 hold(0.4, INTRO.len);
 // "runs along your web app", the same page on a phone (Tailscale), then the punch list
-export const ALONG = { start: at, len: 3.3 };
+export const ALONG = { start: at, len: 4.6 };
 hold(0.4, ALONG.len);
 play(0.4, ev.pick.t - 0.9, 1.5);
 play(ev.pick.t - 0.9, ev.typing[0]!.t);

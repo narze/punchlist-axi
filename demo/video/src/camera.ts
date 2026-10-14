@@ -28,6 +28,9 @@ const s = (raw: number) => ox(raw);
 const keys: Key[] = [
   key(0, 1),
   key(ALONG.start, 1),
+  // toward the toolbar while it is spotlit, so the buttons read as "punchlist" and the rest as the app
+  key(ALONG.start + 0.45, 1.5, { x: 1250, y: 760 }, 0.7),
+  key(ALONG.start + 2.45, 1, HOME, 0.6),
   key(s(ev.pick.t) - 0.8, 2.1, mid(ev.pick.rect)),
   key(s(ev.cta.t) - 0.7, 2.4, mid(ev.cta.rect)),
   key(s(ev.typing[0]!.t) - 0.15, 1.9, mid(ev.typing[0]!.rect)),
