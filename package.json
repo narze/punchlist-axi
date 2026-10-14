@@ -24,12 +24,13 @@
   },
   "scripts": {
     "build": "tsx build.ts",
+    "skill": "tsx skill.ts",
     "gallery": "tsx gallery/serve.ts",
     "typecheck": "tsc -p . && tsc -p src && svelte-check --tsconfig src/client/tsconfig.json --fail-on-warnings --output machine && svelte-check --tsconfig gallery/tsconfig.json --fail-on-warnings --output machine && tsc -p test",
     "lint": "eslint --max-warnings 0 .",
     "check": "pnpm run --silent typecheck && pnpm run --silent lint",
     "pretest": "pnpm run --silent build",
-    "test": "node --import tsx test/cli.test.ts && node --import tsx test/proxy.test.ts && node --import tsx test/client.test.ts && node --import tsx test/url.test.ts && node --import tsx test/drag.test.ts && node --import tsx test/ports.test.ts && node --import tsx test/idle.test.ts && node --import tsx test/gallery.test.ts"
+    "test": "tsx skill.ts --check && node --import tsx test/cli.test.ts && node --import tsx test/proxy.test.ts && node --import tsx test/client.test.ts && node --import tsx test/url.test.ts && node --import tsx test/drag.test.ts && node --import tsx test/ports.test.ts && node --import tsx test/idle.test.ts && node --import tsx test/gallery.test.ts"
   },
   "devDependencies": {
     "@codemirror/lang-css": "^6.3.1",

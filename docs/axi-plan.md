@@ -34,4 +34,4 @@ Requirement 4 (AGENTS.md) was zero runtime dependencies. AXI's reference SDK `ax
 2. [x] TOON output for `status`, `start`, `done`, `stop`; home view on no args; `--version` (via `runAxiCli`). [x] `--version` fast path: `src/punchlist-axi.ts` + leaf `src/version.ts`, CLI loaded by dynamic import.
 3. [x] `wait` in TOON with truncation (HTML at 600 chars) + new `show <id> [--full]`; kind-specific `help[]` lines.
 4. [x] Short top-level `--help` (commands + loop); guidance moved to `start`/`wait`/`done --help` and the `start` output; known limits live in README.
-5. [x] `setup hooks [--project] [--remove]` (SessionStart for Claude Code, Codex, OpenCode); home view scoped to the directory `start` ran in. [ ] Generated SKILL.md with `--check`.
+5. [x] `setup hooks [--project] [--remove]` (SessionStart for Claude Code, Codex, OpenCode); home view scoped to the directory `start` ran in. [x] Generated SKILL.md with `--check`: `skill.ts` writes the published stub (`npx -y punchlist-axi`) and the dev copy (local build) from one template; `pnpm test` runs `--check`. The stub stays thin (no home view in it), as the "Skill holds the workflow text" decision says.
