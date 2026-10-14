@@ -215,7 +215,7 @@ function startOutput(st: ProxyState, state: string) {
     links: l,
     help: [
       'Paste the full local link into your reply text - the user does not see command output, and the link token sets the access cookie',
-      'Tell the user: press the pointer button (Annotate, Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With Annotate off, selecting text shows an Annotate button. The pause button (Alt+Shift+P) pauses animations, the list button shows the notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor (⧉ Copy copies path:line); when no file is known, 🔎 Locate asks you to find it. ✎ Edit in the note panel edits the file right in the page (with no file known, you find it first)',
+      'Tell the user: press the pointer button (Annotate, Alt+Shift+E), tap an element or drag a box, write a note, repeat, then press Send. With Annotate off, selecting text shows an Annotate button. The pause button (Alt+Shift+P) pauses animations, the globe button (Alt+Shift+L) goes to another page of the app (a pasted URL keeps only its path), the list button shows the notes, and notes survive reloads until sent. ↗ Open in the note panel opens the source file in their editor (⧉ Copy copies path:line); when no file is known, 🔎 Locate asks you to find it. ✎ Edit in the note panel edits the file right in the page (with no file known, you find it first)',
       'The user can save files from the page while you work: re-read a file before you edit it',
       ...(l.tailscale ? ['Also paste the tailscale link: it opens on the user\'s phone or any other device in their tailnet'] : []),
       listenHelp(st.port),
