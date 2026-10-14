@@ -1,6 +1,9 @@
 // The component gallery (gallery/, not shipped) bundles, every story mounts without errors, and its elements carry
 // Svelte dev source hints that point into src/client/. jsdom has no layout: how the stories look is checked in a browser.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { options } from '../gallery/config.ts';
@@ -23,7 +26,10 @@ await sleep(100); // the editor import settles
 
 await t('every component has a section with stories', () => {
   const sections = [...d.querySelectorAll('main section')].map(s => s.id);
-  assert.deepEqual(sections, ['Toolbar', 'NotePanel', 'Tray', 'UrlSheet', 'Toasts', 'Outline', 'Overlay', 'EditorPanel']);
+  // App holds the state and only composes the others, so it has no stories
+  const client = path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/client');
+  const components = fs.readdirSync(client).filter(f => f.endsWith('.svelte') && f !== 'App.svelte').map(f => f.replace(/\.svelte$/, ''));
+  assert.deepEqual([...sections].sort(), components.sort(), 'one gallery section per src/client component: add or remove stories with the component');
   for (const s of sections) assert.ok(d.querySelectorAll(`#${s} figure`).length > 0, `${s} has stories`);
 });
 await t('stories render the real components', () => {
