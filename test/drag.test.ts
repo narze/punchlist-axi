@@ -43,6 +43,39 @@ q('.cancel').click();
 
 target = d.getElementById('low'); ev('pointerdown', 10, 710); ev('pointerup', 10, 710);
 assert.ok(q('.panel').classList.contains('top'), 'sheet moves to the top so it does not cover a target in the lower half');
+q('.cancel').click(); target = null;
+
+// touch: a drag scrolls the page natively, a long press then drag selects
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const finger = (t: string, x: number, y: number) => {
+  const e = new w.MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  Object.defineProperty(e, 'pointerType', { value: 'touch' });
+  d.dispatchEvent(e);
+};
+const touch = (t: string) => { const e = new w.Event(t, { bubbles: true, cancelable: true }); d.body.dispatchEvent(e); return e.defaultPrevented; };
+const shown = (s: string) => R.querySelector(s) !== null;
+assert.match(d.documentElement.style.touchAction, /pan-x pan-y/, 'annotate mode lets the browser scroll on touch');
+assert.equal(touch('touchstart'), false, 'touchstart is not cancelled (that would block the scroll)');
+
+finger('pointerdown', 10, 10); finger('pointermove', 10, 60);
+assert.equal(touch('touchmove'), false, 'a quick drag is a scroll');
+finger('pointercancel', 10, 60); // the browser took over to scroll
+await sleep(400);
+finger('pointerup', 10, 60);
+assert.ok(!shown('.panel') && !shown('.marquee'), 'scrolling picks nothing');
+
+finger('pointerdown', 10, 10); finger('pointerup', 10, 10);
+assert.match(q('.panel .label').textContent, /^div#card/, 'a tap picks the element');
+q('.cancel').click();
+
+finger('pointerdown', -5, -5); await sleep(400);
+assert.equal(touch('touchmove'), true, 'after a long press the page does not scroll');
+finger('pointermove', 130, 95); await sleep(0);
+assert.ok(shown('.marquee'), 'the finger draws the selection');
+finger('pointerup', 130, 95);
+assert.match(q('.panel .label').textContent, /^3 elements/, 'long press then drag selects like a mouse drag');
+q('.cancel').click();
+assert.equal(touch('touchmove'), false, 'scrolling works again after the selection');
 assert.deepEqual(errors, [], 'no runtime errors');
 console.log('✓ client.js: drag around text picks block elements; sheet avoids the target');
 w.close();
