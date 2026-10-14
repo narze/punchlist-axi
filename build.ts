@@ -16,7 +16,7 @@ await Promise.all([
   // the picker the proxy injects into pages; css goes into our shadow root, no `window.__svelte` on the app's page.
   // Minified: that is what drops Svelte's dev-only branches.
   build({ bundle: true, minify: true, platform: 'browser', format: 'iife', target: 'es2020', entryPoints: ['src/client/index.ts'], outfile: 'scripts/client.js',
-    mainFields: ['svelte', 'browser', 'module', 'main'], conditions: ['svelte', 'browser', 'production'],
+    mainFields: ['svelte', 'browser', 'module', 'main'], conditions: ['svelte', 'browser', 'production'], loader: { '.css': 'text' },
     plugins: [svelte({ compilerOptions: { css: 'injected', discloseVersion: false } })], banner: { js: banner } }),
   // the in-browser editor (CodeMirror): an ES module the picker imports on first use, so it costs nothing until then
   build({ bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'es2020', entryPoints: ['src/client/editor.ts'], outfile: 'scripts/editor.js',

@@ -359,16 +359,7 @@
   onsend={send} />
 
 <style>
-  /* shared by the sheets and toasts; the shadow root keeps all of it off the page */
-  :global(*) { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  :global(.sheet) { position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%);
-    /* above the toolbar, or just above an open keyboard (--vv-bottom, set in onMount) */
-    bottom: max(calc(68px + env(safe-area-inset-bottom, 0px)), calc(8px + var(--vv-bottom, 0px)));
-    width: min(520px, calc(100vw - 24px)); max-height: min(calc(100vh - 120px), calc(100dvh - var(--vv-bottom, 0px) - 20px)); overflow: auto; background: #18181b; color: #fafafa;
-    border-radius: 12px; padding: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
-  :global(.row) { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  :global(.sheet button), .chip { border: 1px solid #3f3f46; background: #27272a; color: #fafafa; border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
-  :global(.primary) { background: #7c3aed !important; border-color: #7c3aed !important; margin-left: auto; }
-  :global(.sheet button:disabled) { opacity: .4; cursor: default; }
-  .chip { position: fixed; z-index: 2147483647; background: #18181b; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+  /* the rules every sheet shares are in shared.css (index.ts puts them in the shadow root, the gallery on its page) */
+  .chip { position: fixed; z-index: 2147483647; border: 1px solid #3f3f46; background: #18181b; color: #fafafa; border-radius: 6px; padding: 6px 10px;
+    font-size: 13px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 </style>
