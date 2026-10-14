@@ -91,6 +91,15 @@ assert.ok(shown('.url'), 'Alt+Shift+L opens it');
 keydown({ altKey: true, shiftKey: true, code: 'KeyL' }); await sleep(0);
 assert.ok(!shown('.url'), 'and closes it');
 
+// Back to this page from the bfcache: the sheet that was open when the user left is closed, the recents are fresh
+q('[data-act="url"]').click(); await sleep(0);
+w.localStorage.setItem('__pe_recent', JSON.stringify(['/landed', '/events/1?tab=2']));
+w.dispatchEvent(new w.PageTransitionEvent('pageshow', { persisted: true })); await sleep(0);
+assert.ok(!shown('.url'), 'a page restored from the bfcache has the URL sheet closed');
+q('[data-act="url"]').click(); await sleep(0);
+assert.deepEqual(recents(), ['/events/1?tab=2', '/landed'], 'and this page back on top of the recents');
+q('[data-act="url"]').click(); await sleep(0);
+
 // a note being written: leaving the page asks first
 q('.tools [data-act="tray"]').click(); await sleep(0);
 q('.tray .page').click(); await sleep(0);

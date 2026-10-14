@@ -315,6 +315,8 @@
     init();
     document.addEventListener('turbo:load', init);
     addEventListener('popstate', () => { setTimeout(init, 0); });
+    // back from the bfcache: the page is as the user left it, the URL sheet they left with included
+    addEventListener('pageshow', e => { if (e.persisted) { urlOpen = false; init(); } });
     listen(msg => {
       if (msg.type === 'snapshot') for (const it of msg.items) onUpdate(it, false);
       else onUpdate(msg.item, true);
