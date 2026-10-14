@@ -8,11 +8,13 @@
   import ToastsStories from './stories/Toasts.stories.svelte';
   import ToolbarStories from './stories/Toolbar.stories.svelte';
   import TrayStories from './stories/Tray.stories.svelte';
+  import UrlSheetStories from './stories/UrlSheet.stories.svelte';
 
   const components: { name: string; stories: Component }[] = [
     { name: 'Toolbar', stories: ToolbarStories },
     { name: 'NotePanel', stories: NotePanelStories },
     { name: 'Tray', stories: TrayStories },
+    { name: 'UrlSheet', stories: UrlSheetStories },
     { name: 'Toasts', stories: ToastsStories },
     { name: 'Outline', stories: OutlineStories },
     { name: 'Overlay', stories: OverlayStories },

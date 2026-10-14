@@ -23,13 +23,14 @@ await sleep(100); // the editor import settles
 
 await t('every component has a section with stories', () => {
   const sections = [...d.querySelectorAll('main section')].map(s => s.id);
-  assert.deepEqual(sections, ['Toolbar', 'NotePanel', 'Tray', 'Toasts', 'Outline', 'Overlay', 'EditorPanel']);
+  assert.deepEqual(sections, ['Toolbar', 'NotePanel', 'Tray', 'UrlSheet', 'Toasts', 'Outline', 'Overlay', 'EditorPanel']);
   for (const s of sections) assert.ok(d.querySelectorAll(`#${s} figure`).length > 0, `${s} has stories`);
 });
 await t('stories render the real components', () => {
-  assert.equal(d.querySelectorAll('#Toolbar .tools').length, 5);
+  assert.equal(d.querySelectorAll('#Toolbar .tools').length, 6);
   assert.ok(d.querySelector('#NotePanel .sheet.panel.top'), 'the top variant');
   assert.equal(d.querySelectorAll('#Tray li').length, 4);
+  assert.ok(d.querySelector('#UrlSheet .url .error'), 'the error state');
   assert.ok(d.querySelector('#EditorPanel .editor .conflict'), 'the conflict state');
 });
 await t('the shared sheet styles are on the page', () => {
