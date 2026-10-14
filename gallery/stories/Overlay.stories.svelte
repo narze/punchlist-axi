@@ -21,7 +21,7 @@
   });
 </script>
 
-<Frame title="Hover, a draft, two noted elements, a marquee" height={260} contain={false}>
+<Frame title="Hover, a draft, two noted elements, a marquee" height={300} contain={false}>
   <div class="fake">
     <h3 bind:this={title}>Bangkok Design Week</h3>
     <p bind:this={text}>doors 18:30</p>
@@ -32,8 +32,9 @@
 </Frame>
 
 <style>
-  .fake { padding: 32px 40px; }
-  h3 { margin: 0 0 12px; font-size: 20px; }
-  p { display: inline-block; margin: 0 0 80px; color: #52525b; }
-  button { display: block; margin-bottom: 12px; }
+  /* room for each outline's tag above it */
+  .fake { padding: 36px 40px; }
+  h3 { display: inline-block; margin: 0 0 36px; font-size: 20px; }
+  p { width: fit-content; margin: 0 0 84px; color: #52525b; }
+  button { display: block; margin-bottom: 16px; }
 </style>
