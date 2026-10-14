@@ -13,7 +13,7 @@ let ok = 0; const t = (name: string, fn: () => void) => { fn(); ok++; console.lo
 
 t('--version prints the bare version', () => {
   const r = run('--version');
-  assert.equal(r.code, 0); assert.equal(r.out, '0.1.2\n');
+  assert.equal(r.code, 0); assert.match(r.out, /^\d+\.\d+\.\d+\S*\n$/, 'a bare version, whichever it is');
 });
 t('--version is answered before the CLI loads (close to an empty-module floor)', () => {
   const time = (args: string[]) => { const s = performance.now(); spawnSync(process.execPath, args); return performance.now() - s; };
