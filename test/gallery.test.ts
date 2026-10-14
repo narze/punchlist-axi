@@ -33,7 +33,8 @@ await t('every component has a section with stories', () => {
   for (const s of sections) assert.ok(d.querySelectorAll(`#${s} figure`).length > 0, `${s} has stories`);
 });
 await t('stories render the real components', () => {
-  assert.equal(d.querySelectorAll('#Toolbar .tools').length, 6);
+  assert.equal(d.querySelectorAll('#Toolbar .tools').length, 8);
+  assert.equal(d.querySelectorAll('#Toolbar .tools .menu').length, 2, 'the open menu variants');
   assert.ok(d.querySelector('#NotePanel .sheet.panel.top'), 'the top variant');
   assert.equal(d.querySelectorAll('#Tray li').length, 4);
   assert.ok(d.querySelector('#UrlSheet .url .error'), 'the error state');

@@ -51,6 +51,8 @@ w.eval(fs.readFileSync(path.join(here, '../scripts/client.js'), 'utf8'));
 const R = must(must(d.querySelector('punchlist-root')).shadowRoot), q = (s: string) => must(R.querySelector<HTMLElement>(s));
 const shown = (s: string) => R.querySelector(s) !== null;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+// the URL sheet is an item in the toolbar menu
+const urlItem = async () => { q('[data-act="menu"]').click(); await sleep(0); q('[data-act="url"]').click(); await sleep(0); };
 const input = () => must(R.querySelector<HTMLInputElement>('.url input'));
 const go = (text: string) => {
   input().value = text; input().dispatchEvent(new w.Event('input', { bubbles: true }));
@@ -58,8 +60,8 @@ const go = (text: string) => {
 };
 const recents = () => [...R.querySelectorAll('.url .recent button')].map(b => b.textContent);
 
-assert.deepEqual([...R.querySelectorAll<HTMLElement>('.tools button')].map(b => b.dataset['act']).slice(-2), ['url', 'send'], 'the URL button sits just before Send');
-q('[data-act="url"]').click(); await sleep(0);
+assert.deepEqual([...R.querySelectorAll<HTMLElement>('.tools > button')].map(b => b.dataset['act']).slice(-2), ['menu', 'send'], 'the menu with the URL item sits just before Send');
+await urlItem();
 assert.ok(shown('.url'), 'the URL sheet opens');
 assert.equal(input().value, '/events/1?tab=2#seats', 'pre-filled with the current path, query and hash');
 assert.equal(R.activeElement, input(), 'focused');
@@ -92,24 +94,24 @@ keydown({ altKey: true, shiftKey: true, code: 'KeyL' }); await sleep(0);
 assert.ok(!shown('.url'), 'and closes it');
 
 // Back to this page from the bfcache: the sheet that was open when the user left is closed, the recents are fresh
-q('[data-act="url"]').click(); await sleep(0);
+await urlItem();
 w.localStorage.setItem('__pe_recent', JSON.stringify(['/landed', '/events/1?tab=2']));
 w.dispatchEvent(new w.PageTransitionEvent('pageshow', { persisted: true })); await sleep(0);
 assert.ok(!shown('.url'), 'a page restored from the bfcache has the URL sheet closed');
-q('[data-act="url"]').click(); await sleep(0);
+await urlItem();
 assert.deepEqual(recents(), ['/events/1?tab=2', '/landed'], 'and this page back on top of the recents');
-q('[data-act="url"]').click(); await sleep(0);
+await urlItem();
 
 // a note being written: leaving the page asks first
 q('.tools [data-act="tray"]').click(); await sleep(0);
 q('.tray .page').click(); await sleep(0);
 const note = must(R.querySelector('textarea'));
 note.value = 'half a thought'; note.dispatchEvent(new w.Event('input', { bubbles: true }));
-q('[data-act="url"]').click(); await sleep(0);
+await urlItem();
 assert.ok(!shown('.panel'), 'the note panel gives way to the URL sheet');
 keydown({ key: 'Escape' }); await sleep(0);
 assert.equal(must(R.querySelector('textarea')).value, 'half a thought', 'and comes back with its text after Escape');
-q('[data-act="url"]').click(); await sleep(0);
+await urlItem();
 io.navigated = undefined;
 go('/elsewhere');
 assert.equal(io.asked, 1, 'asks before dropping the note being written');
