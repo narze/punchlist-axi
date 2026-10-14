@@ -2,7 +2,8 @@
 // agent scene freeze the page (hidden or aside) while they play; typing and waiting run fast.
 import { ev } from './timeline';
 
-export const FPS = 60;
+// REMOTION_FPS (Remotion passes REMOTION_* variables into the bundle) renders other rates, e.g. pnpm render:120
+export const FPS = Number(process.env["REMOTION_FPS"] ?? 60);
 export interface Seg { start: number; len: number; raw: number; rate: number; freeze: boolean }
 export const segs: Seg[] = [];
 let at = 0;
