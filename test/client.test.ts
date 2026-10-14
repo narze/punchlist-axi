@@ -64,6 +64,8 @@ const sent = () => must(io.sent);
 const byId = (id: string) => must(d.getElementById(id));
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const tool = (a: string) => { q(`[data-act="${a}"]`).click(); };
+// pause and the URL sheet live in the toolbar menu
+const menuItem = async (a: string) => { tool('menu'); await sleep(0); tool(a); await sleep(0); };
 const tap = (el: Element) => { io.target = el; for (const t of ['pointerdown', 'pointerup']) d.dispatchEvent(new w.MouseEvent(t, { bubbles: true, clientX: 5, clientY: 5 })); };
 const type = (text: string) => { field().value = text; field().dispatchEvent(new w.Event('input', { bubbles: true })); };
 const add = (text: string) => { type(text); q('.add').click(); };
@@ -77,7 +79,22 @@ vv.height = w.innerHeight; vv.offsetTop = 0; vv.dispatchEvent(new w.Event('resiz
 assert.equal(hostVar('--vv-bottom'), '0px', 'and drop back when it closes');
 
 let appClicked = false; byId('buy').addEventListener('click', () => { appClicked = true; });
-tool('pick'); tool('freeze');
+assert.deepEqual([...R.querySelectorAll<HTMLElement>('.tools > button')].map(b => b.dataset['act']), ['pick', 'tray', 'menu', 'send'], 'the toolbar: annotate, notes, menu, Send');
+assert.ok(!shown('.tools .menu'), 'the menu starts closed');
+tool('menu'); await sleep(0);
+assert.equal(q('[data-act="menu"]').getAttribute('aria-expanded'), 'true');
+assert.deepEqual([...R.querySelectorAll<HTMLElement>('.tools .menu button')].map(b => b.dataset['act']), ['freeze', 'url'], 'it holds pause and go to a page');
+d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(0);
+assert.ok(!shown('.tools .menu'), 'Escape closes it');
+tool('menu'); await sleep(0);
+d.body.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, composed: true })); await sleep(0);
+assert.ok(!shown('.tools .menu'), 'a press outside closes it');
+tool('pick'); await menuItem('freeze');
+assert.ok(!shown('.tools .menu'), 'choosing an item closes the menu');
+assert.ok(shown('[data-act="menu"] .dot'), 'the menu button shows that animations are paused');
+tool('menu'); await sleep(0);
+assert.match(q('[data-act="freeze"]').textContent, /Resume animations/, 'and the item says it resumes them');
+tool('menu'); await sleep(0);
 tap(byId('buy'));
 assert.equal(R.activeElement, field(), 'textarea is focused synchronously, so no early keystrokes are lost');
 type('abandoned'); q('.cancel').click();
