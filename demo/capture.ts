@@ -2,7 +2,7 @@
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
 // a clicked note and a dragged box, Send, then a fake agent (string edits on the copy) answers with `done`;
 // last, the user fixes a typo themselves in the page's code editor (✎ Edit, ⌘S, Reload).
-// Writes demo/out/raw.mp4 (1080p, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
+// Writes demo/out/raw.mp4 (1440p, so zoomed-in shots stay sharp, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
 // scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
 // start of the video, for the edit in demo/video/ (it draws the terminal and points the camera with them).
 // Not shipped. Chromium: $CHROME, else /usr/bin/chromium (playwright-core downloads no browser).
@@ -15,7 +15,7 @@ import { chromium, type Page } from 'playwright-core';
 import { startApp } from './app/server.ts';
 
 const here = import.meta.dirname, out = path.join(here, 'out'), cli = path.join(here, '../scripts/punchlist-axi.mjs');
-const APP_PORT = 5199, PROXY_PORT = 4123, W = 1280, H = 720, SCALE = 1.5, FPS = 30;
+const APP_PORT = 5199, PROXY_PORT = 4123, W = 1280, H = 720, SCALE = 2, FPS = 30;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // what the fake agent changes after `wait`: one edit per note, in the order the notes are sent

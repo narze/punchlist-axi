@@ -1,18 +1,18 @@
 // The problem, before Claude Code opens: describing a UI fix to an agent in words goes back and forth.
-// Chat bubbles pop in, then fly off for the answer: just point at it.
+// Chat bubbles pop in, then shrink away for the answer: just point at it.
 import { spring, useCurrentFrame } from 'remotion';
 import { FPS, PROBLEM } from './cut';
 import { Sticker } from './parts';
 import type { Cue } from './Sounds';
 import { FUN, hard, INK, PURPLE, YELLOW } from './style';
 
-const P = PROBLEM.start, OFF = P + 4.6;
+const P = PROBLEM.start, OFF = P + 3.75;
 const chat = [
-  { at: P + 0.6, me: true, text: 'make the button bigger' },
-  { at: P + 1.3, me: false, text: 'Which button? I see 14 🤔' },
-  { at: P + 2.1, me: true, text: 'the gray one, in the hero, under the title' },
-  { at: P + 2.9, me: false, text: 'Which template renders that?' },
-  { at: P + 3.5, me: true, text: '😩', big: true },
+  { at: P + 0.45, me: true, text: 'make the button bigger' },
+  { at: P + 1.05, me: false, text: 'Which button? I see 14 🤔' },
+  { at: P + 1.75, me: true, text: 'the gray one, in the hero, under the title' },
+  { at: P + 2.45, me: false, text: 'Which template renders that?' },
+  { at: P + 3.0, me: true, text: '😩', big: true },
 ];
 
 export const problemCues: Cue[] = [
@@ -28,12 +28,12 @@ export function Problem({ t }: { t: number }) {
       <Sticker from={P + 0.1} to={OFF} x={960} y={130} rot={-2} size={56} bg={YELLOW}>Ever described a UI fix to your agent?</Sticker>
       {chat.map((c, i) => {
         const pop = spring({ frame: f - c.at * FPS, fps: FPS, config: { damping: 11, stiffness: 180 } });
-        // off they go, one after another, tumbling
-        const off = spring({ frame: f - (OFF + i * 0.05) * FPS, fps: FPS, config: { damping: 18, stiffness: 90 } });
+        // off they go, each shrinking where it stands, so none slides over another
+        const off = spring({ frame: f - (OFF + i * 0.04) * FPS, fps: FPS, config: { damping: 20, stiffness: 160 } });
         if (pop <= 0.001 || off > 0.99) return null;
         return (
           <div key={i} style={{ position: 'absolute', top: 250 + i * 128, [c.me ? 'right' : 'left']: 330,
-            transform: `translateY(${off * 900}px) rotate(${(c.me ? 1 : -1) * (off * 25 + (1 - pop) * 8)}deg) scale(${pop})`,
+            transform: `translateY(${off * 40}px) rotate(${(c.me ? 1 : -1) * (off * 12 + (1 - pop) * 8)}deg) scale(${pop * (1 - off)})`, opacity: 1 - off,
             transformOrigin: c.me ? '100% 100%' : '0% 100%', display: 'flex', alignItems: 'center', gap: 16, flexDirection: c.me ? 'row-reverse' : 'row' }}>
             <span style={{ fontFamily: FUN, fontWeight: 700, fontSize: 24, color: INK, opacity: 0.7 }}>{c.me ? 'you' : 'agent'}</span>
             <div style={{ fontFamily: FUN, fontWeight: 500, fontSize: c.big ? 64 : 40, lineHeight: 1.2, padding: c.big ? '4px 26px' : '16px 30px',
@@ -42,7 +42,7 @@ export function Problem({ t }: { t: number }) {
           </div>
         );
       })}
-      <Sticker from={OFF + 0.25} to={PROBLEM.start + PROBLEM.len + 0.1} x={960} y={500} rot={-3} size={96} bg={YELLOW}>Just point at it 👆</Sticker>
+      <Sticker from={OFF + 0.15} to={PROBLEM.start + PROBLEM.len + 0.1} x={960} y={500} rot={-3} size={96} bg={YELLOW}>Just point at it 👆</Sticker>
     </>
   );
 }

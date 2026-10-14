@@ -38,15 +38,17 @@ const keys: Key[] = [
   key(s(ev.send.t) - 0.8, 2.5, mid(ev.send.rect)),
   key(AGENT.start, 1, HOME, 0.5),
   key(s(ev.reload.t) - 1.3, 2.1, mid(ev.reload.rect)),
-  // the fixed button is bigger than the old one
-  key(RESULT.start + 0.15, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
-  key(RESULT.start + 1.5, 1.25, mid(ev.drag.rect), 0.7),
-  key(EDIT.start, 1, HOME, 0.5),
+  // the whole fixed page first (the "before" shows beside it), then the button and the cards
+  key(RESULT.start + 0.1, 1, HOME, 0.5),
+  key(RESULT.start + 1.6, 2, mid({ ...ev.cta.rect, width: ev.cta.rect.width + 30, height: ev.cta.rect.height + 20 }), 0.7),
+  key(RESULT.start + 2.8, 1.25, mid(ev.drag.rect), 0.7),
+  // "wait, coffe?": the typo before the user fixes it
+  key(EDIT.start, 1.7, mid(ev.h1.rect), 0.6),
   key(s(ev.editPick.t) - 0.7, 2.1, mid(ev.editPick.rect)),
   key(s(ev.h1.t) - 0.7, 1.6, mid(ev.h1.rect)),
   key(s(ev.editBtn.t) - 0.7, 2.3, mid(ev.editBtn.rect)),
-  key(s(ev.editor.t) + 0.05, 1.2, mid(ev.editor.rect), 0.6),
-  key(s(ev.word.t) - 0.8, 2.7, mid(ev.word.rect), 0.8),
+  // from the ✎ Edit click, while the editor loads, straight to the word (not the empty space under the code)
+  key(s(ev.editBtn.t) + 0.1, 2.5, mid(ev.word.rect), 0.8),
   // the editor's header: the file name loses its ● and Save greys out
   key(s(ev.save.t) - 0.1, 1.9, mid({ ...ev.editor.rect, height: 40 }), 0.5),
   key(s(ev.close.t) - 0.6, 2.2, mid(ev.close.rect)),

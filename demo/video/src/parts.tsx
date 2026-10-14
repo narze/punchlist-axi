@@ -112,9 +112,10 @@ export function Outro({ from }: { from: number }) {
         background: INK, border: `5px solid ${INK}`, borderRadius: 20, padding: '20px 36px', boxShadow: `10px 10px 0 ${PURPLE}` }}>
         <span style={{ color: MINT }}>$</span> npx skills add narze/punchlist-axi
       </div>
-      <Sticker from={from + 1.0} to={from + 99} x={560} y={800} rot={-5} bg={MINT}>any agent</Sticker>
-      <Sticker from={from + 1.15} to={from + 99} x={960} y={830} rot={3} bg={SKY}>any framework</Sticker>
-      <Sticker from={from + 1.3} to={from + 99} x={1380} y={800} rot={-3} bg={PINK}>even on your phone</Sticker>
+      <div style={{ position: 'absolute', top: 668, opacity: code, fontFamily: FUN, fontWeight: 700, fontSize: 38, color: INK }}>github.com/narze/punchlist-axi</div>
+      <Sticker from={from + 1.0} to={from + 99} x={450} y={860} rot={-5} bg={MINT}>any agent</Sticker>
+      <Sticker from={from + 1.15} to={from + 99} x={960} y={890} rot={3} bg={SKY}>any framework</Sticker>
+      <Sticker from={from + 1.3} to={from + 99} x={1470} y={860} rot={-3} bg={PINK}>no changes to your app</Sticker>
     </AbsoluteFill>
   );
 }

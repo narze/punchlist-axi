@@ -10,7 +10,7 @@ const play = (from: number, to: number, rate = 1) => { segs.push({ start: at, le
 const hold = (raw: number, len: number) => { segs.push({ start: at, len, raw, rate: 1, freeze: true }); at += len; };
 
 // the problem: describing a UI fix in words
-export const PROBLEM = { start: 0, len: 6.4 };
+export const PROBLEM = { start: 0, len: 5.6 };
 hold(0.4, PROBLEM.len);
 // Claude Code: /punchlist, the proxy starts, the link
 export const INTRO = { start: PROBLEM.len, len: 5.9, end: PROBLEM.len + 5.9 };
@@ -32,19 +32,20 @@ hold(ev.send.t + 0.7, AGENT.len);
 play(ev.done.t, ev.reload.t - 1, 2.5);
 play(ev.reload.t - 1, ev.result.t + 1.2);
 export const RESULT = { start: at - 1.2, len: 0 };
-hold(ev.result.t + 1.2, 2.2);
+hold(ev.result.t + 1.2, 3.0);
 RESULT.len = at - RESULT.start;
-// the typo, fixed by hand in the page's editor
+// the typo, fixed by hand in the page's editor: first a beat to spot it
 export const EDIT = { start: at, len: 0 };
+hold(ev.edit.t, 1.3);
 play(ev.edit.t, ev.editPick.t - 0.6, 1.5);
-play(ev.editPick.t - 0.6, ev.h1.t + 0.3, 1.2);
-play(ev.h1.t + 0.3, ev.editBtn.t - 0.6, 1.6);
-play(ev.editBtn.t - 0.6, ev.editor.t + 0.2);
-play(ev.editor.t + 0.2, ev.word.t - 0.6, 1.3);
+play(ev.editPick.t - 0.6, ev.h1.t + 0.3, 1.5);
+play(ev.h1.t + 0.3, ev.editBtn.t - 0.6, 2);
+play(ev.editBtn.t - 0.6, ev.editor.t + 0.2, 1.3);
+play(ev.editor.t + 0.2, ev.word.t - 0.6, 1.8);
 play(ev.word.t - 0.6, ev.editTyped.t + 0.3);
 play(ev.editTyped.t + 0.3, ev.save.t + 0.9);
-play(ev.save.t + 0.9, ev.close.t - 0.5, 2);
-play(ev.close.t - 0.5, ev.reload2.t - 0.5, 1.5);
+play(ev.save.t + 0.9, ev.close.t - 0.5, 2.5);
+play(ev.close.t - 0.5, ev.reload2.t - 0.5, 2);
 play(ev.reload2.t - 0.5, END);
 EDIT.len = at - EDIT.start;
 export const OUTRO = { start: at - 0.4, len: 4.4 };

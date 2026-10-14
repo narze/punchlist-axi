@@ -1,5 +1,5 @@
 // The browser window: raw.mp4 cut into segments (sped up, frozen) under a title bar that names the proxy.
-import { Freeze, OffthreadVideo, Sequence, staticFile } from 'remotion';
+import { Freeze, interpolate, OffthreadVideo, Sequence, spring, staticFile, useCurrentFrame } from 'remotion';
 import { WIN } from './camera';
 import { FPS, segs } from './cut';
 import { FUN, hard, INK, MINT, PINK, PURPLE, YELLOW } from './style';
@@ -26,6 +26,25 @@ export function Browser({ transform }: { transform: string }) {
           </Sequence>;
         })}
       </div>
+    </div>
+  );
+}
+
+// the page as it was before the agent's fix, in a corner while the fixed page shows
+export function Before({ from, to, raw }: { from: number; to: number; raw: number }) {
+  const f = useCurrentFrame();
+  const s = spring({ frame: f - from * FPS, fps: FPS, config: { damping: 11, stiffness: 160 } }) * interpolate(f, [to * FPS - 6, to * FPS], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  if (f < from * FPS || s <= 0.001) return null;
+  const w = 400;
+  return (
+    <div style={{ position: 'absolute', left: 40, bottom: 330, width: w, transform: `scale(${s}) rotate(-3deg)`, transformOrigin: '0% 100%' }}>
+      <div style={{ width: w, height: w * 9 / 16, border: `5px solid ${INK}`, borderRadius: 16, overflow: 'hidden', boxShadow: hard(10), background: '#fff' }}>
+        <Sequence from={Math.round(from * FPS)} durationInFrames={Math.round((to - from) * FPS)} layout="none">
+          <Freeze frame={0}><OffthreadVideo src={staticFile('raw.mp4')} trimBefore={Math.round(raw * FPS)} muted style={{ width: '100%', height: '100%' }} /></Freeze>
+        </Sequence>
+      </div>
+      <div style={{ position: 'absolute', left: -14, top: -26, fontFamily: FUN, fontWeight: 700, fontSize: 34, color: INK, background: PINK, border: `4px solid ${INK}`,
+        borderRadius: 14, padding: '2px 16px', boxShadow: hard(5), transform: 'rotate(-4deg)' }}>before</div>
     </div>
   );
 }

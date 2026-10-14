@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "studio": "node music.ts 70 && remotion studio",
-    "render": "node music.ts 70 && remotion render Demo ../out/demo.mp4",
+    "render": "node music.ts 70 && remotion render Demo ../out/demo-raw.mp4 && ffmpeg -y -v error -i ../out/demo-raw.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k ../out/demo.mp4",
     "check": "tsc"
   },
   "dependencies": {
