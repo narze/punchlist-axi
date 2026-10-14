@@ -1,8 +1,9 @@
 // `pnpm demo:capture`: records the raw footage for the demo video. It serves demo/app from a temp copy,
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
 // two clicked notes and one dragged box, Send, then a fake agent (string edits on the copy) answers with `done`.
-// Writes demo/out/raw.mp4 (1080p, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output and the
-// scene marks, in seconds from the start of the video, for the edit (the terminal side is drawn there).
+// Writes demo/out/raw.mp4 (1080p, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
+// scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
+// start of the video, for the edit in demo/video/ (it draws the terminal and points the camera with them).
 // Not shipped. Chromium: $CHROME, else /usr/bin/chromium (playwright-core downloads no browser).
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -26,9 +27,11 @@ const notes = [
 ] as const;
 const summary = '1: fixed the typo in _hero.html.erb  2: .cta is now the brand button  3: 24px gaps, roomier cards';
 
-const timeline: { t: number; kind: 'cmd' | 'out' | 'scene'; text: string }[] = [];
+interface Rect { x: number; y: number; width: number; height: number }
+type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged';
+const timeline: { t: number; kind: Kind; text: string; rect?: Rect }[] = [];
 let t0 = 0;
-const mark = (kind: 'cmd' | 'out' | 'scene', text: string) => { timeline.push({ t: (Date.now() - t0) / 1000, kind, text }); };
+const mark = (kind: Kind, text: string, rect?: Rect | null) => { timeline.push({ t: (Date.now() - t0) / 1000, kind, text, ...(rect ? { rect } : {}) }); };
 
 async function run(args: string[]) {
   mark('cmd', `punchlist-axi ${args.join(' ')}`);
@@ -83,11 +86,14 @@ async function click(page: Page, selector: string) {
     await glide(page, x, y, i ? 300 : 600);
   }
   await sleep(150);
+  mark('click', selector, await page.locator(selector).first().boundingBox());
   await page.mouse.down(); await sleep(80); await page.mouse.up();
 }
 async function note(page: Page, text: string) {
   await sleep(400);
+  mark('typing', text, await page.locator('punchlist-root .sheet').first().boundingBox());
   await page.locator('punchlist-root textarea').pressSequentially(text, { delay: 45 });
+  mark('typed', text);
   await sleep(400);
   await click(page, 'punchlist-root .add');
   await sleep(500);
@@ -144,8 +150,11 @@ try {
   // a box around the plans: press outside the grid, drag past it
   mark('scene', 'drag');
   const { b } = await center(page, notes[2].at);
-  await glide(page, b.x - 12, b.y - 12); await page.mouse.down();
+  await glide(page, b.x - 12, b.y - 12);
+  mark('drag', notes[2].at, { x: b.x - 12, y: b.y - 12, width: b.width + 24, height: b.height + 24 });
+  await page.mouse.down();
   await glide(page, b.x + b.width + 12, b.y + b.height + 12, 900); await page.mouse.up();
+  mark('dragged', notes[2].at);
   await note(page, notes[2].text);
 
   // the agent is already waiting when the user presses Send
