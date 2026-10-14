@@ -3704,6 +3704,12 @@ var ON_PATH = !VIA_NPX && (process.env["PATH"] ?? "").split(path.delimiter).some
 });
 var PE = VIA_NPX ? "npx -y punchlist-axi" : ON_PATH ? "punchlist-axi" : `node ${SCRIPT}`;
 var WAIT_EXECUTION_GUIDANCE = "Keep wait in the foreground by default. Use a background command only if a tracked job in your harness reliably resumes or notifies the same agent on completion (Claude Code: Bash with run_in_background: true). Codex: keep this turn active; if exec_command returns a session ID, use write_stdin to collect its output. A running command alone does not guarantee a new turn. Do not detach wait with nohup, shell &, disown or redirected output without a verified callback. Do not claim to be listening until you can receive the command output";
+var wrap = (text, indent = "  ", width = 100) => text.split(" ").reduce((lines, word) => {
+  const last = lines.at(-1);
+  if (last !== void 0 && last.length + 1 + word.length <= width) lines[lines.length - 1] = `${last} ${word}`;
+  else lines.push(indent + word);
+  return lines;
+}, []).join("\n");
 var listenHelp = (port) => `Run \`${PE} wait --port ${port}\` to receive notes. ${WAIT_EXECUTION_GUIDANCE}. Run wait again after every done or timeout until the user tells you to stop`;
 var GUIDE = `punchlist - click-to-edit for any running web app. A local proxy injects a picker into every
 page; the user marks elements and presses Send; you pull the notes, edit the source, report back.
@@ -3757,11 +3763,10 @@ examples:
   --timeout  seconds to wait (default 540, under most shell-tool limits)
   --json     raw request JSON instead of the formatted view
   Share the proxy link in a progress message before waiting, so the user can open it.
-  ${WAIT_EXECUTION_GUIDANCE}.
-  Keep waiting in the active turn when your harness has no completion notifications.
-  Do not send a final reply while expecting
-  a detached wait to wake you. With completion notifications, a longer --timeout
-  (e.g. 3600) means fewer empty wake-ups.
+${wrap(WAIT_EXECUTION_GUIDANCE + ".")}
+  Keep waiting in the active turn when your harness has no completion notifications. Do not send
+  a final reply while expecting a detached wait to wake you. With completion notifications, a
+  longer --timeout (e.g. 3600) means fewer empty wake-ups.
   Run wait again after every done and every timeout until the user tells you to stop.
   Notes queue on the proxy while it runs. If your turn already ended, the user can ask
   you to pick up the queued notes; run wait to receive them. SessionStart hooks provide
@@ -3792,9 +3797,13 @@ examples:
   ${PE} done r2 "need the new copy for the hero" --failed
   ${PE} done r3 --open app/assets/javascripts/components/hero.js.jsx:12`,
   status: `status [--port 4000]
-  List the requests on a proxy with counts by state.`,
+  List the requests on a proxy with counts by state.
+examples:
+  ${PE} status --port 4000`,
   stop: `stop [--port 4000]
-  Stop a proxy. No-op when nothing runs.`,
+  Stop a proxy. No-op when nothing runs.
+examples:
+  ${PE} stop --port 4000`,
   setup: `setup hooks [--project] [--remove]
   Add a SessionStart hook to Claude Code, Codex and OpenCode: each session starts with the
   proxies running for its directory (the no-args home view). Safe to re-run.
@@ -3815,5 +3824,7 @@ await runAxiCli({
   getCommandHelp: (c) => {
     const h = HELP[c];
     return h ? h + "\n" : null;
-  }
+  },
+  // the SDK default says only "Run `--help`"; name the full command like every other help line
+  renderUnknownCommand: (c) => encode({ error: `Unknown command: ${c}`, code: "VALIDATION_ERROR", help: [`Run \`${PE} --help\` to see available commands`] }) + "\n"
 });
