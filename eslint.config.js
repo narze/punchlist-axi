@@ -5,7 +5,7 @@ import svelte from 'eslint-plugin-svelte';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['scripts/', 'node_modules/'] },
+  { ignores: ['scripts/', 'node_modules/', 'gallery/dist/'] },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,
