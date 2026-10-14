@@ -1,7 +1,7 @@
 // `pnpm demo:capture`: records the raw footage for the demo video. It serves demo/app from a temp copy,
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
-// two clicked notes and one dragged box, Send, then a fake agent (string edits on the copy) answers with `done`;
-// last, the user fixes a heading themselves in the page's code editor (✎ Edit, ⌘S, Reload).
+// a clicked note and a dragged box, Send, then a fake agent (string edits on the copy) answers with `done`;
+// last, the user fixes a typo themselves in the page's code editor (✎ Edit, ⌘S, Reload).
 // Writes demo/out/raw.mp4 (1080p, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
 // scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
 // start of the video, for the edit in demo/video/ (it draws the terminal and points the camera with them).
@@ -21,12 +21,11 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 // what the fake agent changes after `wait`: one edit per note, in the order the notes are sent
 const hero = 'app/views/home/_hero.html.erb', plans = 'app/views/home/_plans.html.erb';
 const notes = [
-  { at: 'h1', text: 'Typo: "coffe" should be "coffee"', file: hero, fix: [['Fresh coffe,', 'Fresh coffee,']] },
   { at: '.cta', text: 'Make this the main button: bigger, brand color', file: hero, fix: [['.cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }',
     '.cta { display: inline-block; border: 0; border-radius: 999px; background: #b45309; color: #fff; padding: 14px 28px; font-size: 17px; font-weight: 600; box-shadow: 0 8px 24px rgba(180,83,9,.3); }']] },
   { at: '.grid', text: 'Cards feel cramped, give them room', file: plans, fix: [['gap: 4px; }', 'gap: 24px; }'], ['border-radius: 4px; padding: 12px; }', 'border-radius: 16px; padding: 24px; }']] },
 ] as const;
-const summary = '1: fixed the typo in _hero.html.erb  2: .cta is now the brand button  3: 24px gaps, roomier cards';
+const summary = '1: .cta is now the brand button  2: 24px gaps, roomier cards';
 
 interface Rect { x: number; y: number; width: number; height: number }
 type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged' | 'editor';
@@ -146,17 +145,17 @@ try {
   mark('scene', 'page'); await sleep(1500);
 
   mark('scene', 'annotate'); await click(page, 'punchlist-root [data-act="pick"]'); await sleep(500);
-  for (const n of notes.slice(0, 2)) { await click(page, n.at); await note(page, n.text); }
+  await click(page, notes[0].at); await note(page, notes[0].text);
 
   // a box around the plans: press outside the grid, drag past it
   mark('scene', 'drag');
-  const { b } = await center(page, notes[2].at);
+  const { b } = await center(page, notes[1].at);
   await glide(page, b.x - 12, b.y - 12);
-  mark('drag', notes[2].at, { x: b.x - 12, y: b.y - 12, width: b.width + 24, height: b.height + 24 });
+  mark('drag', notes[1].at, { x: b.x - 12, y: b.y - 12, width: b.width + 24, height: b.height + 24 });
   await page.mouse.down();
   await glide(page, b.x + b.width + 12, b.y + b.height + 12, 900); await page.mouse.up();
-  mark('dragged', notes[2].at);
-  await note(page, notes[2].text);
+  mark('dragged', notes[1].at);
+  await note(page, notes[1].text);
 
   // the agent is already waiting when the user presses Send
   mark('scene', 'send');
@@ -185,39 +184,37 @@ try {
   }, null, { timeout: 15000 });
   await sleep(800);
   await click(page, 'punchlist-root .toast button >> text=Reload');
-  await page.locator('h1', { hasText: 'coffee,' }).waitFor();
+  await page.waitForFunction(() => { const b = document.querySelector('.cta'); return b && getComputedStyle(b).backgroundColor === 'rgb(180, 83, 9)'; });
   await page.mouse.move(mx - 1, my); await page.mouse.move(mx, my); // the new page's fake pointer starts where the real one is
   mark('scene', 'result'); await sleep(2500);
 
-  // the user's own fix: ✎ Edit opens the heading's template in the page, select "a plan", type, ⌘S, Reload
+  // the user's own fix: ✎ Edit opens the heading's template in the page, double-click "coffe", type, ⌘S, Reload
   mark('scene', 'edit');
   await click(page, 'punchlist-root [data-act="pick"]'); await sleep(400);
-  await click(page, 'h2'); await sleep(700);
+  await click(page, 'h1'); await sleep(700);
   await click(page, 'punchlist-root .edit');
   const editor = page.locator('punchlist-root .cm-content');
   await editor.waitFor(); await sleep(700);
-  mark('editor', plans, await page.locator('punchlist-root .editor').first().boundingBox());
-  const plan = await page.evaluate(() => {
+  mark('editor', hero, await page.locator('punchlist-root .editor').first().boundingBox());
+  const word = await page.evaluate(() => {
     const root = document.querySelector('punchlist-root')?.shadowRoot;
-    const line = [...root?.querySelectorAll('.cm-line') ?? []].find(l => l.textContent.includes('Pick a plan'));
+    const line = [...root?.querySelectorAll('.cm-line') ?? []].find(l => l.textContent.includes('Fresh coffe,'));
     const walker = line && document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
     for (let n = walker?.nextNode(); n; n = walker?.nextNode()) {
-      const i = n.textContent?.indexOf('plan') ?? -1;
+      const i = n.textContent?.indexOf('coffe,') ?? -1;
       if (i < 0) continue;
-      const r = document.createRange(); r.setStart(n, i + 4); r.setEnd(n, i + 4);
-      const b = r.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2 };
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 5);
+      const b = r.getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width, height: b.height };
     }
     return null;
   });
-  if (!plan) throw new Error('"Pick a plan" is not in the editor');
-  await glide(page, plan.x, plan.y); await sleep(150);
-  mark('click', 'editor text', { x: plan.x, y: plan.y - 10, width: 1, height: 20 });
-  await page.mouse.down(); await page.mouse.up(); await sleep(300);
-  for (let i = 0; i < 2; i++) { await page.keyboard.press('Shift+Control+ArrowLeft'); await sleep(250); }
-  await sleep(300);
-  mark('typing', 'your roast', await page.locator('punchlist-root .editor').first().boundingBox());
-  await page.keyboard.type('your roast', { delay: 90 });
-  mark('typed', 'your roast'); await sleep(500);
+  if (!word) throw new Error('"Fresh coffe," is not in the editor');
+  await glide(page, word.x + word.width / 2, word.y + word.height / 2); await sleep(200);
+  mark('click', 'editor text', word);
+  await page.mouse.dblclick(mx, my); await sleep(600);
+  mark('typing', 'coffee', await page.locator('punchlist-root .editor').first().boundingBox());
+  await page.keyboard.type('coffee', { delay: 110 });
+  mark('typed', 'coffee'); await sleep(500);
   mark('scene', 'save'); await page.keyboard.press('Control+S');
   await page.waitForFunction(() => {
     const t = document.querySelector('punchlist-root')?.shadowRoot?.querySelectorAll('.toast');
@@ -228,7 +225,7 @@ try {
   mark('scene', 'close'); await click(page, 'punchlist-root .editor .close'); await sleep(500);
   page.on('dialog', d => { void d.accept(); });
   await click(page, 'punchlist-root .toast button >> text=Reload');
-  await page.locator('h2', { hasText: 'Pick your roast' }).waitFor();
+  await page.locator('h1', { hasText: 'coffee,' }).waitFor();
   await page.mouse.move(mx - 1, my); await page.mouse.move(mx, my);
   mark('scene', 'edited'); await sleep(2500);
 
