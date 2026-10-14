@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roastery - fresh coffee, every week</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #292524; background: #fafaf9; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 48px; }
+  .logo { font-weight: 800; font-size: 22px; letter-spacing: -.02em; }
+  .logo span { color: #b45309; }
+  nav a { color: #57534e; text-decoration: none; margin-left: 28px; font-size: 15px; }
+</style>
+</head>
+<body>
+<nav><div class="logo">Roast<span>ery</span></div><div><a href="#plans">Plans</a><a href="#">Origins</a><a href="#">Sign in</a></div></nav>
+<%= yield %>
+</body>
+</html>

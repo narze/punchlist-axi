@@ -1,6 +1,7 @@
 // `pnpm demo:capture`: records the raw footage for the demo video. It serves demo/app from a temp copy,
 // puts the real proxy in front of it, and drives a headless Chromium through one punch list:
-// two clicked notes and one dragged box, Send, then a fake agent (string edits on the copy) answers with `done`.
+// two clicked notes and one dragged box, Send, then a fake agent (string edits on the copy) answers with `done`;
+// last, the user fixes a heading themselves in the page's code editor (✎ Edit, ⌘S, Reload).
 // Writes demo/out/raw.mp4 (1080p, from CDP screencast frames, encoded by the system ffmpeg), and demo/out/timeline.json: the CLI commands, their real output,
 // scene marks, and where each click, typed note and drag happened (CSS px of the 1280x720 viewport), in seconds from the
 // start of the video, for the edit in demo/video/ (it draws the terminal and points the camera with them).
@@ -18,17 +19,17 @@ const APP_PORT = 5199, PROXY_PORT = 4123, W = 1280, H = 720, SCALE = 1.5, FPS = 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // what the fake agent changes after `wait`: one edit per note, in the order the notes are sent
+const hero = 'app/views/home/_hero.html.erb', plans = 'app/views/home/_plans.html.erb';
 const notes = [
-  { at: 'h1', text: 'Typo: "coffe" should be "coffee"', fix: ['Fresh coffe,', 'Fresh coffee,'] },
-  { at: '.cta', text: 'Make this the main button: bigger, brand color', fix: ['/* cta */ .cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }',
-    '/* cta */ .cta { display: inline-block; border: 0; border-radius: 999px; background: #b45309; color: #fff; padding: 14px 28px; font-size: 17px; font-weight: 600; box-shadow: 0 8px 24px rgba(180,83,9,.3); }'] },
-  { at: '.grid', text: 'Cards feel cramped, give them room', fix: ['gap: 4px; }', 'gap: 24px; }'],
-    more: [['border-radius: 4px; padding: 12px; }', 'border-radius: 16px; padding: 24px; }']] },
+  { at: 'h1', text: 'Typo: "coffe" should be "coffee"', file: hero, fix: [['Fresh coffe,', 'Fresh coffee,']] },
+  { at: '.cta', text: 'Make this the main button: bigger, brand color', file: hero, fix: [['.cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }',
+    '.cta { display: inline-block; border: 0; border-radius: 999px; background: #b45309; color: #fff; padding: 14px 28px; font-size: 17px; font-weight: 600; box-shadow: 0 8px 24px rgba(180,83,9,.3); }']] },
+  { at: '.grid', text: 'Cards feel cramped, give them room', file: plans, fix: [['gap: 4px; }', 'gap: 24px; }'], ['border-radius: 4px; padding: 12px; }', 'border-radius: 16px; padding: 24px; }']] },
 ] as const;
 const summary = '1: fixed the typo in _hero.html.erb  2: .cta is now the brand button  3: 24px gaps, roomier cards';
 
 interface Rect { x: number; y: number; width: number; height: number }
-type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged';
+type Kind = 'cmd' | 'out' | 'scene' | 'click' | 'typing' | 'typed' | 'drag' | 'dragged' | 'editor';
 const timeline: { t: number; kind: Kind; text: string; rect?: Rect }[] = [];
 let t0 = 0;
 const mark = (kind: Kind, text: string, rect?: Rect | null) => { timeline.push({ t: (Date.now() - t0) / 1000, kind, text, ...(rect ? { rect } : {}) }); };
@@ -118,9 +119,9 @@ async function encode(frames: { t: number; jpeg: Buffer }[], end: number, file: 
 
 fs.mkdirSync(out, { recursive: true });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'punchlist-demo-'));
-fs.copyFileSync(path.join(here, 'app/index.html'), path.join(dir, 'index.html'));
+fs.cpSync(path.join(here, 'app/app'), path.join(dir, 'app'), { recursive: true });
 const app = await startApp(dir, APP_PORT);
-const started = await run(['start', '--target', String(APP_PORT), '--port', String(PROXY_PORT), '--no-tailscale', '--idle-timeout', '300']);
+const started = await run(['start', '--target', String(APP_PORT), '--port', String(PROXY_PORT), '--no-tailscale', '--idle-timeout', '300', '--root', dir]);
 const link = /local: "([^"]+)"/.exec(started)?.[1];
 if (!link) throw new Error(`no link in:\n${started}`);
 
@@ -168,10 +169,12 @@ try {
   const id = /\b(r\d+)\b/.exec(batch)?.[1] ?? 'r1';
 
   mark('scene', 'agent'); await sleep(1500);
-  const file = path.join(dir, 'index.html');
-  let html = fs.readFileSync(file, 'utf8');
-  for (const n of notes) for (const [a, z] of [n.fix, ...('more' in n ? n.more : [])]) html = html.replace(a, z);
-  fs.writeFileSync(file, html);
+  for (const n of notes) {
+    const file = path.join(dir, n.file);
+    let html = fs.readFileSync(file, 'utf8');
+    for (const [a, z] of n.fix) html = html.replace(a, z);
+    fs.writeFileSync(file, html);
+  }
   await run(['done', id, summary, '--port', String(PROXY_PORT)]);
 
   mark('scene', 'done');
@@ -186,11 +189,58 @@ try {
   await page.mouse.move(mx - 1, my); await page.mouse.move(mx, my); // the new page's fake pointer starts where the real one is
   mark('scene', 'result'); await sleep(2500);
 
+  // the user's own fix: ✎ Edit opens the heading's template in the page, select "a plan", type, ⌘S, Reload
+  mark('scene', 'edit');
+  await click(page, 'punchlist-root [data-act="pick"]'); await sleep(400);
+  await click(page, 'h2'); await sleep(700);
+  await click(page, 'punchlist-root .edit');
+  const editor = page.locator('punchlist-root .cm-content');
+  await editor.waitFor(); await sleep(700);
+  mark('editor', plans, await page.locator('punchlist-root .editor').first().boundingBox());
+  const plan = await page.evaluate(() => {
+    const root = document.querySelector('punchlist-root')?.shadowRoot;
+    const line = [...root?.querySelectorAll('.cm-line') ?? []].find(l => l.textContent.includes('Pick a plan'));
+    const walker = line && document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let n = walker?.nextNode(); n; n = walker?.nextNode()) {
+      const i = n.textContent?.indexOf('plan') ?? -1;
+      if (i < 0) continue;
+      const r = document.createRange(); r.setStart(n, i + 4); r.setEnd(n, i + 4);
+      const b = r.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2 };
+    }
+    return null;
+  });
+  if (!plan) throw new Error('"Pick a plan" is not in the editor');
+  await glide(page, plan.x, plan.y); await sleep(150);
+  mark('click', 'editor text', { x: plan.x, y: plan.y - 10, width: 1, height: 20 });
+  await page.mouse.down(); await page.mouse.up(); await sleep(300);
+  for (let i = 0; i < 2; i++) { await page.keyboard.press('Shift+Control+ArrowLeft'); await sleep(250); }
+  await sleep(300);
+  mark('typing', 'your roast', await page.locator('punchlist-root .editor').first().boundingBox());
+  await page.keyboard.type('your roast', { delay: 90 });
+  mark('typed', 'your roast'); await sleep(500);
+  mark('scene', 'save'); await page.keyboard.press('Control+S');
+  await page.waitForFunction(() => {
+    const t = document.querySelector('punchlist-root')?.shadowRoot?.querySelectorAll('.toast');
+    return t?.length === 1 && t[0]?.textContent.includes('Saved');
+  }, null, { timeout: 15000 });
+  await sleep(900);
+  // the editor covers the toasts: close it (saved, so one click), then Reload
+  mark('scene', 'close'); await click(page, 'punchlist-root .editor .close'); await sleep(500);
+  page.on('dialog', d => { void d.accept(); });
+  await click(page, 'punchlist-root .toast button >> text=Reload');
+  await page.locator('h2', { hasText: 'Pick your roast' }).waitFor();
+  await page.mouse.move(mx - 1, my); await page.mouse.move(mx, my);
+  mark('scene', 'edited'); await sleep(2500);
+
   const end = Date.now();
   await cdp.send('Page.stopScreencast');
   await encode(frames, end, path.join(out, 'raw.mp4'));
   fs.writeFileSync(path.join(out, 'timeline.json'), JSON.stringify(timeline, null, 2) + '\n');
   console.log(`wrote ${path.relative(process.cwd(), out)}/raw.mp4 and timeline.json`);
+} catch (e) {
+  // what the page looked like when a step failed
+  await browser.contexts()[0]?.pages()[0]?.screenshot({ path: path.join(out, 'error.png') });
+  throw e;
 } finally {
   await browser.close();
   await new Promise(r => { spawn('node', [cli, 'stop', '--port', String(PROXY_PORT)], { stdio: 'ignore' }).on('close', r); });

@@ -1,0 +1,16 @@
+<style>
+  .hero { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding: 16px 48px 32px; }
+  h1 { font-size: 52px; line-height: 1.05; letter-spacing: -.03em; margin: 0 0 16px; }
+  .lead { font-size: 19px; color: #57534e; margin: 0 0 28px; max-width: 30em; }
+  .cta { display: inline-block; border: 0; border-radius: 6px; background: #e7e5e4; color: #57534e; padding: 6px 12px; font-size: 13px; }
+  .art { aspect-ratio: 16 / 10; border-radius: 24px; background: radial-gradient(circle at 30% 30%, #fbbf24, #b45309 55%, #451a03); position: relative; overflow: hidden; }
+  .art::after { content: "☕"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 96px; }
+</style>
+<section class="hero">
+  <div>
+    <h1>Fresh coffe, roasted the week you drink it.</h1>
+    <p class="lead">Single-origin beans from small farms, roasted on Monday and at your door by Thursday. Pause or cancel any time.</p>
+    <button class="cta">Start my subscription</button>
+  </div>
+  <div class="art" role="img" aria-label="A cup of coffee"></div>
+</section>
