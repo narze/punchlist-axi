@@ -43,7 +43,7 @@ Open the printed link (its token sets an access cookie). In the page: press the 
 
 Phone access: when Tailscale is installed and connected, the proxy also listens on this machine's tailnet addresses, and `start` prints a second link, `http://<machine>.<tailnet>.ts.net:<port>/...`, that opens on any device in your tailnet. The token is still required. `--no-tailscale` turns this off; `--no-auth` and an explicit `--host` also skip it. Want HTTPS? Run `tailscale serve --bg <port>` yourself. Never use `tailscale funnel`: anyone who reaches the proxy can make your agent edit code.
 
-Optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
+The skill and the hook below are two ways to reach the same result, so you only need one. The hook is optional: `punchlist-axi setup hooks` (needs the global install) adds a SessionStart hook to Claude Code, Codex and OpenCode, so new agent sessions see the proxies running for their directory (`--project` for the repo config, `--remove` to undo).
 
 `npx -y punchlist-axi --help` is the full guide for agents.
 
