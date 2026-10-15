@@ -75,7 +75,7 @@ t('wait --help explains completion notifications, Codex polling and restarting',
   const out = run('wait', '--help').out;
   assert.match(out, /background command only if/); assert.match(out, /run_in_background/); assert.match(out, /run wait again/i);
   assert.match(out, /foreground by default/); assert.match(out, /Codex:.*exec_command/); assert.match(out, /write_stdin/);
-  assert.match(out, /do not detach/i); assert.match(out, /not a notification/);
+  assert.match(out, /do not\s+detach/i); assert.match(out, /not a notification/);
 });
 t('done --help explains partial failures', () => {
   assert.match(run('done', '--help').out, /still do the others/);
@@ -83,6 +83,18 @@ t('done --help explains partial failures', () => {
 t('per-command --help is concise and lists the flags', () => {
   const r = run('wait', '--help');
   assert.equal(r.code, 0); assert.match(r.out, /--timeout/); assert.doesNotMatch(r.out, /FINDING THE SOURCE/);
+});
+t('an unknown command names the full command to run for help', () => {
+  const r = run('bogus');
+  assert.equal(r.code, 2); assert.match(r.out, /Unknown command: bogus/);
+  assert.ok(r.out.includes(`Run \`node ${CLI} --help\``), r.out);
+});
+t('status and stop --help have examples', () => {
+  for (const c of ['status', 'stop']) assert.match(run(c, '--help').out, new RegExp(`^examples:\\n  .* ${c} --port 4000$`, 'm'), c);
+});
+t('wait --help prose wraps at 100 columns', () => {
+  const prose = run('wait', '--help').out.split('\nexamples:')[0] ?? '';
+  for (const line of prose.split('\n')) assert.ok(line.length <= 100, `${line.length} chars: ${line}`);
 });
 t('setup needs a known target', () => {
   const r = run('setup');
