@@ -5,7 +5,8 @@ import svelte from 'eslint-plugin-svelte';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['scripts/', 'node_modules/', 'gallery/dist/'] },
+  // demo/video/ is its own package (React, Remotion) with its own tsc check
+  { ignores: ['scripts/', 'node_modules/', 'gallery/dist/', 'demo/video/'] },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,
