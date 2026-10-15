@@ -1,0 +1,23 @@
+{
+  "name": "punchlist-demo-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "node music.ts 70 && remotion studio",
+    "render": "node music.ts 70 && remotion render Demo ../out/demo-raw.mp4 && ffmpeg -y -v error -i ../out/demo-raw.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k ../out/demo.mp4",
+    "check": "tsc",
+    "render:120": "node music.ts 70 && REMOTION_FPS=120 remotion render Demo ../out/demo-120-raw.mp4 --bundle-cache=false && ffmpeg -y -v error -i ../out/demo-120-raw.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k ../out/demo-120fps.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.535",
+    "@remotion/google-fonts": "4.0.535",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "remotion": "4.0.535"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.2.0",
+    "typescript": "~6.0.3"
+  }
+}
