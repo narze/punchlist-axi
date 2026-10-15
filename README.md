@@ -6,6 +6,8 @@ A local proxy sits in front of your dev server and injects a picker into every H
 
 Nothing in your app changes. It works in front of Rails (Turbo), SvelteKit/Vite, React, Vue and static servers.
 
+![punchlist in 48 seconds: describing a UI fix in words, the toolbar running along a web app, the agent receiving the notes and editing the code, the fixed page beside the old one](docs/media/demo.jpg)
+
 ## Use
 
 ### Agent setup
