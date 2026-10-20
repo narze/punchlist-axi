@@ -16,7 +16,7 @@ function tryFastPath(argv, options) {
 }
 
 // package.json
-var version = "0.1.4";
+var version = "0.1.5";
 
 // src/version.ts
 var VERSION = version;
