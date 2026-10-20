@@ -124,6 +124,15 @@ t('setup hooks installs a working SessionStart hook, idempotently, and --remove 
   assert.equal(removed.status, 0); assert.equal(hooks().length, 0);
   assert.deepEqual(all().map(h => h.command), [mine.command], 'an unrelated user hook survives install and --remove');
 });
+t('setup hooks fails with a non-zero exit when it could not write the hooks', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-nowrite-'));
+  const home = path.join(tmp, 'home'); fs.writeFileSync(home, ''); // a file where HOME should be: every mkdir fails, even as root
+  const r = spawnSync(process.execPath, [CLI, 'setup', 'hooks'], { encoding: 'utf8', env: { ...process.env, HOME: home }, timeout: 15000 });
+  assert.equal(r.status, 1, r.stdout); assert.match(r.stdout, /^error: /m); assert.match(r.stdout, /SETUP_FAILED/);
+  assert.doesNotMatch(r.stdout, /installed or already up to date|now starts with the proxies/, 'no success claim');
+  assert.match(r.stdout, /claude/); assert.match(r.stdout, /ENOTDIR|EACCES/, 'says why');
+  assert.match(r.stdout, /Run `.*setup hooks/, 'says how to try again');
+});
 // Copies the built scripts into a package layout, the way npm lays them out.
 const installAt = (dir: string) => {
   const pkg = path.join(dir, 'punchlist-axi');
