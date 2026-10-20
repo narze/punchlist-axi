@@ -819,10 +819,16 @@ function cmdSetup(args: Args) {
   else installSessionStartHooks({ ...identity, binaryNames: ['punchlist-axi'], shouldInstall: () => true, onError });
   const st = sessionStartHookStatus(identity);
   const row = (agent: string, a: { installed: boolean; path: string }) => ({ agent, installed: a.installed, path: a.path.replace(os.homedir(), '~') });
+  // Truthful output (AXI rule 6): never claim a change that the re-read status does not show.
+  const left = (['claude', 'codex', 'opencode'] as const).filter(agent => st[agent].installed === !!args.remove);
+  if (left.length || problems.length) {
+    const why = problems.map(m => m.replace(os.homedir(), '~')).join('; ');
+    throw new AxiError(`setup hooks could not ${args.remove ? 'remove' : 'install'} the SessionStart hooks (${scope} scope): ${left.join(', ') || 'no agent'} ${args.remove ? 'still installed' : 'not installed'}${why ? ` (${why})` : ''}`, 'SETUP_FAILED',
+      [`Run \`${PE} setup hooks${args.remove ? ' --remove' : ''}${args.project ? ' --project' : ''}\` again once the cause is fixed`]);
+  }
   return {
     setup: `${args.remove ? 'removed' : 'installed or already up to date'}: SessionStart hooks (${scope} scope)`,
     agents: [row('claude', st.claude), row('codex', st.codex), row('opencode', st.opencode)],
-    ...(problems.length ? { warnings: problems } : {}),
     help: args.remove ? [`Run \`${PE} setup hooks${args.project ? ' --project' : ''}\` to install them again`]
       : ['Each new agent session now starts with the proxies running for its directory', `Run \`${PE} setup hooks --remove${args.project ? ' --project' : ''}\` to undo`],
   };
